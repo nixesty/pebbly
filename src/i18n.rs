@@ -4,7 +4,7 @@
 
 use std::cell::Cell;
 use std::fmt::Display;
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
 use serde::{Deserialize, Serialize};
 
@@ -179,12 +179,117 @@ pub fn fill(pattern: &str, args: &[&dyn Display]) -> String {
 #[link(name = "kernel32")]
 extern "system" {
     fn GetUserDefaultUILanguage() -> u16;
+    fn GetLocaleInfoEx(locale: *const u16, lctype: u32, data: *mut u16, len: i32) -> i32;
 }
 
 /// Windows' user interface language is Turkish.
 pub fn windows_is_turkish() -> bool {
     // LANG_TURKISH in the low 10 bits of the language id.
     unsafe { GetUserDefaultUILanguage() & 0x3FF == 0x1F }
+}
+
+/// The settings' choice for times of day: Windows' own clock, or one of the two.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ClockPick {
+    #[default]
+    Auto,
+    H24,
+    H12,
+}
+
+static TWELVE_HOUR: AtomicBool = AtomicBool::new(false);
+
+thread_local! {
+    /// A test's clock, as [`OVERRIDE`] is its language.
+    static TWELVE_OVERRIDE: Cell<Option<bool>> = const { Cell::new(None) };
+}
+
+/// The times of day read on a 12-hour clock.
+pub fn twelve_hour() -> bool {
+    TWELVE_OVERRIDE.with(Cell::get).unwrap_or(TWELVE_HOUR.load(Ordering::Relaxed))
+}
+
+pub fn set_twelve_hour(on: bool) {
+    TWELVE_HOUR.store(on, Ordering::Relaxed);
+}
+
+/// Runs `f` on a 12-hour clock on this thread (tests).
+pub fn in_twelve_hour<R>(f: impl FnOnce() -> R) -> R {
+    struct Restore(Option<bool>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            TWELVE_OVERRIDE.with(|o| o.set(self.0));
+        }
+    }
+    let _restore = Restore(TWELVE_OVERRIDE.with(|o| o.replace(Some(true))));
+    f()
+}
+
+/// Whether a Windows time pattern is a 12-hour clock: an `h` outside quotes (`H` is 24-hour;
+/// Quebec's "HH 'h' mm" quotes its h).
+pub fn is_twelve_hour(pattern: &str) -> bool {
+    let mut quoted = false;
+    for c in pattern.chars() {
+        match c {
+            '\'' => quoted = !quoted,
+            'h' if !quoted => return true,
+            _ => {}
+        }
+    }
+    false
+}
+
+/// The clock a setting picks: for `Auto`, Windows' short time (`windows`), 24 hours when it
+/// doesn't say.
+pub fn pick_clock(p: ClockPick, windows: Option<&str>) -> bool {
+    match p {
+        ClockPick::H24 => false,
+        ClockPick::H12 => true,
+        ClockPick::Auto => windows.is_some_and(is_twelve_hour),
+    }
+}
+
+/// The clock a setting gives on this PC (Windows' own read now: it can change while Pebbly runs).
+pub fn clock_chosen(p: ClockPick) -> bool {
+    pick_clock(p, windows_short_time().as_deref())
+}
+
+/// The user's short time pattern ("HH:mm", "h:mm tt"), as the taskbar's clock shows it.
+fn windows_short_time() -> Option<String> {
+    const LOCALE_SSHORTTIME: u32 = 0x79;
+    let mut buf = [0u16; 80];
+    // A null locale: the user's own, with their changes in Region.
+    let n = unsafe { GetLocaleInfoEx(std::ptr::null(), LOCALE_SSHORTTIME, buf.as_mut_ptr(), buf.len() as i32) };
+    (n > 1).then(|| String::from_utf16_lossy(&buf[..n as usize - 1]))
+}
+
+/// The 12-hour clock's hour (12 for 0 and 12) and its ÖÖ/ÖS.
+fn twelve(h: i64) -> (i64, &'static str) {
+    (if h % 12 == 0 { 12 } else { h % 12 }, if h < 12 { n_("{} ÖÖ") } else { n_("{} ÖS") })
+}
+
+/// A time of day from a local unix time (seconds shifted to local): "21:05" on a 24-hour clock,
+/// "9:05 ÖS" / "9:05 PM" on a 12-hour one.
+pub fn time_of_day(local: i64) -> String {
+    let secs = local.rem_euclid(86_400);
+    let (h, m) = (secs / 3600, secs % 3600 / 60);
+    if !twelve_hour() {
+        return format!("{h:02}:{m:02}");
+    }
+    let (h, pattern) = twelve(h);
+    trf(pattern, &[&format!("{h}:{m:02}")])
+}
+
+/// The hour of a local unix time, on the hour (the forecast's columns): "21:00", or "9 ÖS" /
+/// "9 PM".
+pub fn hour_text(local: i64) -> String {
+    let h = local.rem_euclid(86_400) / 3600;
+    if !twelve_hour() {
+        return format!("{h:02}:00");
+    }
+    let (h, pattern) = twelve(h);
+    trf(pattern, &[&h])
 }
 
 #[cfg(test)]
@@ -345,6 +450,53 @@ mod tests {
     fn numbers_read_the_languages_way() {
         assert_eq!((percent(48), decimal1(1.23)), ("%48".to_string(), "1,2".to_string()));
         in_language(Language::English, || assert_eq!((percent(48), decimal1(1.23)), ("48%".to_string(), "1.2".to_string())));
+    }
+
+    /// Issue #4: a 12-hour clock beside the 24-hour one (Windows' Turkish says ÖÖ and ÖS).
+    #[test]
+    fn times_of_day_on_either_clock() {
+        let (evening, morning) = (21 * 3600 + 5 * 60, 9 * 3600 + 5 * 60);
+        assert_eq!((time_of_day(evening), time_of_day(morning)), ("21:05".to_string(), "09:05".to_string()));
+        in_twelve_hour(|| {
+            assert_eq!(time_of_day(evening), "9:05 ÖS");
+            assert_eq!(time_of_day(morning), "9:05 ÖÖ");
+            assert_eq!(time_of_day(0), "12:00 ÖÖ", "midnight");
+            assert_eq!(time_of_day(12 * 3600), "12:00 ÖS", "noon");
+            assert_eq!(time_of_day(3 * 86_400 + evening), "9:05 ÖS", "a local unix time, any day");
+            in_language(Language::English, || assert_eq!(time_of_day(evening), "9:05 PM"));
+        });
+        assert_eq!(time_of_day(evening), "21:05", "the thread's clock is back");
+    }
+
+    /// The forecast's columns, "rain around": the hour alone.
+    #[test]
+    fn hours_on_either_clock() {
+        assert_eq!((hour_text(21 * 3600 + 59 * 60), hour_text(9 * 3600)), ("21:00".to_string(), "09:00".to_string()));
+        in_twelve_hour(|| {
+            assert_eq!(hour_text(9 * 3600), "9 ÖÖ");
+            assert_eq!((hour_text(0), hour_text(12 * 3600)), ("12 ÖÖ".to_string(), "12 ÖS".to_string()));
+            in_language(Language::English, || assert_eq!(hour_text(21 * 3600), "9 PM"));
+        });
+    }
+
+    /// Windows' short time: Turkey's "HH:mm", the US's "h:mm tt", Quebec's "HH 'h' mm" (a
+    /// quoted h is a letter, not the hour).
+    #[test]
+    fn windows_short_time_says_which_clock() {
+        assert!(!is_twelve_hour("HH:mm"));
+        assert!(is_twelve_hour("h:mm tt"));
+        assert!(is_twelve_hour("tt hh:mm"));
+        assert!(!is_twelve_hour("HH 'h' mm"));
+        assert!(!is_twelve_hour(""));
+    }
+
+    #[test]
+    fn the_clock_setting_picks_one() {
+        assert!(!pick_clock(ClockPick::Auto, Some("HH:mm")));
+        assert!(pick_clock(ClockPick::Auto, Some("h:mm tt")));
+        assert!(!pick_clock(ClockPick::Auto, None), "Windows didn't say: 24 hours, as before");
+        assert!(pick_clock(ClockPick::H12, Some("HH:mm")));
+        assert!(!pick_clock(ClockPick::H24, Some("h:mm tt")));
     }
 
     #[test]

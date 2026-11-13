@@ -199,7 +199,7 @@ pub fn alert_text(a: &Alert, now_utc: i64, utc_offset_s: i64) -> (&'static str, 
         AlertKind::Storm if a.at_utc <= now_utc => (tr("Fırtına"), tr("şu an").to_string()),
         AlertKind::Storm => (tr("Fırtına"), rain_when(((a.at_utc - now_utc) as u32).div_ceil(60))),
         AlertKind::Wind if a.at_utc <= now_utc => (tr("Kuvvetli rüzgâr"), trf("{} km/sa · şimdi", &[&a.value])),
-        AlertKind::Wind => (tr("Kuvvetli rüzgâr"), trf("{} km/sa · {}", &[&a.value, &format!("{:02}:00", hour(a.at_utc))])),
+        AlertKind::Wind => (tr("Kuvvetli rüzgâr"), trf("{} km/sa · {}", &[&a.value, &crate::i18n::hour_text(a.at_utc + utc_offset_s)])),
         AlertKind::Heat => (tr("Aşırı sıcak"), trf("bugün {}°", &[&a.value])),
         AlertKind::Frost => {
             let when = match hour(a.at_utc) {

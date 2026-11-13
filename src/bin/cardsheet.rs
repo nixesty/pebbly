@@ -12,6 +12,7 @@ use pebbly::render::card::{card_size_dip, card_tint, output_subline, paint_card,
 use pebbly::activities::games::Store;
 use pebbly::activities::shelf::{file_kind, op_label, ops, ShelfItem, ShelfOp};
 use pebbly::activities::claude::StepKind;
+use pebbly::i18n::{hour_text, time_of_day};
 use pebbly::render::crest::Crest;
 use pebbly::render::gfx::{rect, Ink, TextKit};
 use pebbly::render::layout::Scale;
@@ -145,16 +146,16 @@ fn question(show: QuestionShow, asked: &str, answer: &str) -> CardContent {
 /// Back from a lock: one row of each kind (made up).
 fn away_card() -> AwayCard {
     use pebbly::activities::away::{self, AwayKind};
-    let row = |kind, text: String, time: &str| AwayRow { kind, text, time: time.into(), crest: None };
+    let row = |kind, text: String, (h, m): (i64, i64)| AwayRow { kind, text, time: time_of_day(h * 3600 + m * 60), crest: None };
     AwayCard {
         span: away::span_text(14 * 3600 + 120, 17 * 3600 + 14 * 60),
         rows: vec![
-            row(AwayKind::Claude, away::claude_done("pebbly"), "17:09"),
-            row(AwayKind::Match, away::goal_text("GS", "FB", (1, 0), "67′"), "16:52"),
-            row(AwayKind::Rain { snow: false }, away::rain_text(false).into(), "16:20"),
-            row(AwayKind::Game(Store::Epic), away::download_done("Rocket League"), "15:41"),
-            row(AwayKind::App((0x58, 0x65, 0xF2)), away::app_text("Discord", "Ekin: akşam maç var mı?"), "15:03"),
-            row(AwayKind::Battery, away::battery_text(15), "14:30"),
+            row(AwayKind::Claude, away::claude_done("pebbly"), (17, 9)),
+            row(AwayKind::Match, away::goal_text("GS", "FB", (1, 0), "67′"), (16, 52)),
+            row(AwayKind::Rain { snow: false }, away::rain_text(false).into(), (16, 20)),
+            row(AwayKind::Game(Store::Epic), away::download_done("Rocket League"), (15, 41)),
+            row(AwayKind::App((0x58, 0x65, 0xF2)), away::app_text("Discord", "Ekin: akşam maç var mı?"), (15, 3)),
+            row(AwayKind::Battery, away::battery_text(15), (14, 30)),
         ],
         more: 2,
     }
@@ -188,11 +189,13 @@ fn claude_card(state: LiveState, thinking: bool, ask: bool, focus: bool) -> Clau
 }
 
 fn main() -> Result<()> {
-    // --en: the painters' own words in English (the samples' lines stay as written).
+    // --en: the painters' own words in English (the samples' lines stay as written); --12h: the
+    // times of day on a 12-hour clock.
     if std::env::args().any(|a| a == "--en") {
         pebbly::i18n::set_language(pebbly::i18n::Language::English);
     }
-    let out = std::env::args().skip(1).find(|a| a != "--en").unwrap_or_else(|| std::env::temp_dir().join("cardsheet.png").to_string_lossy().into_owned());
+    pebbly::i18n::set_twelve_hour(std::env::args().any(|a| a == "--12h"));
+    let out = std::env::args().skip(1).find(|a| !a.starts_with("--")).unwrap_or_else(|| std::env::temp_dir().join("cardsheet.png").to_string_lossy().into_owned());
     unsafe { CoInitializeEx(None, COINIT_MULTITHREADED).ok()? };
     let s = Scale(1.25);
     // The Buds manager: a Buds2 (made-up readings) on every page, then a model whose settings
@@ -283,13 +286,13 @@ fn main() -> Result<()> {
         progress: 0.4,
     });
     moving.show_lyrics = true;
-    let hour = |h: &str, s: &str, t: &str| (h.to_string(), s.to_string(), t.to_string());
+    let hour = |h: i64, s: &str, t: &str| (hour_text(h * 3600), s.to_string(), t.to_string());
     let weather = WeatherCard {
         city: "İstanbul".into(),
         symbol: "🌙".into(),
         temp: "18°".into(),
         summary: "Açık · En düşük 11° · En yüksek 21°".into(),
-        hours: vec![hour("20:00", "🌙", "18°"), hour("21:00", "🌙", "17°"), hour("22:00", "⛅", "15°"), hour("23:00", "☁\u{FE0F}", "15°"), hour("00:00", "🌧\u{FE0F}", "14°"), hour("01:00", "🌫\u{FE0F}", "14°")],
+        hours: vec![hour(20, "🌙", "18°"), hour(21, "🌙", "17°"), hour(22, "⛅", "15°"), hour(23, "☁\u{FE0F}", "15°"), hour(0, "🌧\u{FE0F}", "14°"), hour(1, "🌫\u{FE0F}", "14°")],
         fx: pebbly::activities::weather::WeatherFx::ClearNight,
         alert: None,
     };
@@ -298,7 +301,7 @@ fn main() -> Result<()> {
         symbol: "☁\u{FE0F}".into(),
         temp: "12°".into(),
         fx: pebbly::activities::weather::WeatherFx::Clouds,
-        alert: Some((pebbly::activities::weather_alert::AlertKind::Wind, "Kuvvetli rüzgâr".into(), "65 km/sa · 21:00".into())),
+        alert: Some((pebbly::activities::weather_alert::AlertKind::Wind, "Kuvvetli rüzgâr".into(), format!("65 km/sa · {}", hour_text(21 * 3600)))),
         ..weather.clone()
     };
     let team = |code: &str, primary: [u8; 3], secondary: [u8; 3]| CardTeam { name: code.into(), code: code.into(), palette: pebbly::render::color::team_palette(primary, secondary), crest: None };
@@ -311,13 +314,13 @@ fn main() -> Result<()> {
             symbol: "⛅".into(),
             temp: "17°".into(),
             summary: "Parçalı bulutlu · 11° / 21°".into(),
-            hours: vec![hour("09:00", "⛅", "17°"), hour("10:00", "⛅", "18°"), hour("11:00", "☀\u{FE0F}", "19°"), hour("12:00", "☀\u{FE0F}", "20°"), hour("13:00", "☁\u{FE0F}", "20°"), hour("14:00", "🌧\u{FE0F}", "18°")],
-            rain: Some("14:00 civarı yağmur".into()),
+            hours: vec![hour(9, "⛅", "17°"), hour(10, "⛅", "18°"), hour(11, "☀\u{FE0F}", "19°"), hour(12, "☀\u{FE0F}", "20°"), hour(13, "☁\u{FE0F}", "20°"), hour(14, "🌧\u{FE0F}", "18°")],
+            rain: Some(format!("{} civarı yağmur", hour_text(14 * 3600))),
             fx: pebbly::activities::weather::WeatherFx::Clouds,
         }),
         matches: vec![
             BriefMatchRow { home: efes.clone(), away: fb.clone(), status: "Ç3 04:12 · Canlı".into(), live: true },
-            BriefMatchRow { home: fb.clone(), away: gs.clone(), status: "20:00 · Süper Lig".into(), live: false },
+            BriefMatchRow { home: fb.clone(), away: gs.clone(), status: format!("{} · Süper Lig", time_of_day(20 * 3600)), live: false },
             BriefMatchRow { home: gs.clone(), away: fb.clone(), status: "2–1 · Dün".into(), live: false },
         ],
         music: Some(BriefMusic { title: "GEM DELÍRIO (Slowed)".into(), artist: "ZXVRF".into(), art: Some(cover.px.clone()), art_size: cover.size, playing: false }),

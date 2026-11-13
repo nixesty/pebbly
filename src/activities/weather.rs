@@ -341,15 +341,16 @@ pub fn describe(code: u8) -> &'static str {
     }
 }
 
-/// "19:42" and "Sal 21 Eki" for a local time (unix seconds already shifted to local).
+/// "19:42" (or "7:42 ÖS") and "Sal 21 Eki" for a local time (unix seconds already shifted to
+/// local).
 pub fn clock_text(local: i64) -> (String, String) {
     const DAYS: [&str; 7] = [n_("Pzt"), n_("Sal"), n_("Çar"), n_("Per"), n_("Cum"), n_("Cmt"), n_("Paz")];
     const MONTHS: [&str; 12] = [n_("Oca"), n_("Şub"), n_("Mar"), n_("Nis"), n_("May"), n_("Haz"), n_("Tem"), n_("Ağu"), n_("Eyl"), n_("Eki"), n_("Kas"), n_("Ara")];
-    let (days, secs) = (local.div_euclid(86_400), local.rem_euclid(86_400));
+    let days = local.div_euclid(86_400);
     let (_, month, day) = super::football::civil_from_days(days);
     // 1 January 1970 was a Thursday (index 3).
     let weekday = tr(DAYS[(days + 3).rem_euclid(7) as usize]);
-    (format!("{:02}:{:02}", secs / 3600, secs % 3600 / 60), format!("{weekday} {day} {}", tr(MONTHS[(month - 1) as usize])))
+    (crate::i18n::time_of_day(local), format!("{weekday} {day} {}", tr(MONTHS[(month - 1) as usize])))
 }
 
 /// Whether an answer fetched at `fetched_utc` still says what the weather is now (two hours).

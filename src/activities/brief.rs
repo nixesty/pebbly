@@ -4,7 +4,7 @@
 use super::basketball::period_text;
 use super::football::{civil_from_days, minute_text, MatchSnapshot, MatchStatus};
 use super::weather::{fx_of, WeatherFx};
-use crate::i18n::{n_, tr, trc, trf};
+use crate::i18n::{hour_text, n_, time_of_day, tr, trc, trf};
 
 /// The day starts here: an unlock at 2 am is still last night.
 const DAY_STARTS_H: i64 = 5;
@@ -63,7 +63,7 @@ pub fn rain_later(hourly: &[(i64, f32, u8, bool)], now_utc: i64, offset_s: i64) 
         *t > now_utc && (t + offset_s).div_euclid(86_400) == today && matches!(fx_of(*code, *day), WeatherFx::Rain | WeatherFx::Storm | WeatherFx::Snow)
     })?;
     let what = if fx_of(*code, *day) == WeatherFx::Snow { tr("kar") } else { tr("yağmur") };
-    Some(trf("{} civarı {}", &[&format!("{:02}:00", (t + offset_s).rem_euclid(86_400) / 3600), &what]))
+    Some(trf("{} civarı {}", &[&hour_text(t + offset_s), &what]))
 }
 
 /// One match row of the brief: which snapshot, and what its right side says.
@@ -99,7 +99,7 @@ pub fn pick_matches(matches: &[MatchSnapshot], now_utc: i64, now_ms: u64, offset
                 (now_utc - m.kickoff_utc <= RESULTS_FOR_S).then(|| (2, -m.kickoff_utc, row(format!("{}–{} · {label}", m.score.0, m.score.1), false)))
             } else {
                 let local = m.kickoff_utc + offset_s;
-                let at = if m.time_known { format!("{:02}:{:02}", local.rem_euclid(86_400) / 3600, local.rem_euclid(3600) / 60) } else { tr("Bugün").into() };
+                let at = if m.time_known { time_of_day(local) } else { tr("Bugün").into() };
                 (day(m.kickoff_utc) == today).then(|| (1, m.kickoff_utc, row(format!("{at} · {}", m.competition), false)))
             }
         })

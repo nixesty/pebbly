@@ -104,6 +104,11 @@ export global Store {
     /// 0 Otomatik (Windows'unki), 1 Türkçe, 2 English.
     in-out property <int> language: 0;
     callback language-picked(int);
+    /// 0 Otomatik (Windows'unki), 1 24 saat, 2 12 saat.
+    in-out property <int> clock: 0;
+    /// Windows' own clock reads 12 hours (what Otomatik gives).
+    in-out property <bool> windows-twelve-hour: false;
+    out property <bool> twelve-hour: clock == 2 || (clock == 0 && windows-twelve-hour);
     /// 0 picker, 1 settings.
     in-out property <int> tray-click: 0;
     in-out property <bool> close-on-leave: true;

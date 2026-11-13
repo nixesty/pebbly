@@ -3,7 +3,7 @@
 
 use super::games::{played_text, Store};
 use super::weather_alert::AlertKind;
-use crate::i18n::{percent, tr, trc, trf};
+use crate::i18n::{percent, time_of_day, tr, trc, trf};
 
 /// The unlock's moment stays in front this long.
 pub const AWAY_MOMENT_MS: u64 = 8000;
@@ -102,13 +102,7 @@ pub fn count_text(n: usize) -> String {
 
 /// "14:02 – 17:14 · 3 sa 12 dk" from local times.
 pub fn span_text(since_local: i64, until_local: i64) -> String {
-    format!("{} – {} · {}", hhmm(since_local), hhmm(until_local), played_text(until_local - since_local))
-}
-
-/// "17:05" of a local time.
-pub fn hhmm(local: i64) -> String {
-    let secs = local.rem_euclid(86_400);
-    format!("{:02}:{:02}", secs / 3600, secs % 3600 / 60)
+    format!("{} – {} · {}", time_of_day(since_local), time_of_day(until_local), played_text(until_local - since_local))
 }
 
 /// "Claude bitti · pebbly"
@@ -230,7 +224,8 @@ mod tests {
         assert_eq!((count_text(1), count_text(4)), ("1 şey".to_string(), "4 şey".to_string()));
         // 14:02 to 17:14 local.
         assert_eq!(span_text(14 * 3600 + 120, 17 * 3600 + 14 * 60), "14:02 – 17:14 · 3 sa 12 dk");
-        assert_eq!(hhmm(86_400 + 9 * 3600 + 5 * 60), "09:05");
+        let span = crate::i18n::in_twelve_hour(|| span_text(14 * 3600 + 120, 17 * 3600 + 14 * 60));
+        assert_eq!(span, "2:02 ÖS – 5:14 ÖS · 3 sa 12 dk", "a 12-hour clock");
         assert_eq!(claude_done("pebbly"), "Claude bitti · pebbly");
         assert_eq!(live_done("cargo build"), "cargo build bitti");
         assert_eq!(goal_text("GS", "FB", (1, 0), "67′"), "GS 1–0 FB · 67′");

@@ -3753,3 +3753,31 @@ msgstr "Moving over from Now Bar"
 #: setup/src/main.rs
 msgid "Now Bar v{} kurulu · Pebbly'ye geçecek"
 msgstr "Now Bar v{} installed · moves to Pebbly"
+
+#: src/i18n.rs
+msgid "{} ÖÖ"
+msgstr "{} AM"
+
+#: src/i18n.rs
+msgid "{} ÖS"
+msgstr "{} PM"
+
+#: src/settings_ui.rs
+msgid "Saat"
+msgstr "Clock"
+
+#: src/settings_ui.rs
+msgid "Saat biçimi"
+msgstr "Time format"
+
+#: src/settings_ui.rs
+msgid "Otomatik: Windows'unki; 24 ya da 12 saat"
+msgstr "Automatic: Windows' own; 24-hour or 12-hour"
+
+#: ui/pages.slint
+msgid "24 saat"
+msgstr "24-hour"
+
+#: ui/pages.slint
+msgid "12 saat"
+msgstr "12-hour"

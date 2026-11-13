@@ -507,6 +507,19 @@ export component GeneralInspector inherits VerticalLayout {
         }
     }
     ISection {
+        title: @tr("Saat");
+        IRow {
+            label: @tr("Saat biçimi");
+            note: @tr("Otomatik: Windows'unki");
+            Select {
+                options: [@tr("Otomatik"), @tr("24 saat"), @tr("12 saat")];
+                selected <=> Store.clock;
+                box-width: 110px;
+                picked => { Ui.changed(); }
+            }
+        }
+    }
+    ISection {
         title: @tr("Başlangıç");
         IRow {
             label: @tr("Windows ile başlat");
