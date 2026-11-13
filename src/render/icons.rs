@@ -1,6 +1,7 @@
 //! Icons are glyphs of the system "Segoe Fluent Icons" font, so they stay sharp at any size.
 //! Windows 10 has only its predecessor, "Segoe MDL2 Assets", with the same code points for
-//! nearly all of them ([`in_mdl2`]).
+//! nearly all of them ([`in_mdl2`]); an older Windows 10's lacks the solid transport controls
+//! ([`outline_transport`]).
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Icon {
@@ -177,6 +178,22 @@ pub fn in_mdl2(c: char) -> char {
     }
 }
 
+/// Play, Pause, Prev and Next, solid: Windows 11's MDL2 has them, an older Windows 10's draws
+/// a box instead (issue #8).
+pub const SOLID_TRANSPORT: [char; 4] = ['\u{F5B0}', '\u{F8AE}', '\u{F8AC}', '\u{F8AD}'];
+
+/// MDL2's outline transport glyph for a solid one, there since Windows 10's first. All four
+/// go together: one filled beside an outlined one looks broken.
+pub fn outline_transport(c: char) -> char {
+    match c {
+        '\u{F5B0}' => '\u{E768}',
+        '\u{F8AE}' => '\u{E769}',
+        '\u{F8AC}' => '\u{E892}',
+        '\u{F8AD}' => '\u{E893}',
+        _ => c,
+    }
+}
+
 /// The size to draw `c` at in Segoe MDL2 Assets, as a factor on Fluent's: its batteries (made
 /// for a phone's status bar) are wider than Fluent's 1 em, and come down to it.
 pub fn mdl2_scale(c: char) -> f32 {
@@ -213,6 +230,17 @@ mod tests {
         }
         assert_eq!(in_mdl2('\u{EBA5}'), '\u{EBA5}', "a battery level");
         assert_eq!(in_mdl2('a'), 'a');
+    }
+
+    /// Issue #8: older Windows 10 copies of MDL2 draw a box for the solid transport glyphs;
+    /// its outline ones have been there since Windows 10's first.
+    #[test]
+    fn transport_falls_back_to_mdl2s_outline_glyphs() {
+        assert_eq!(SOLID_TRANSPORT, [Icon::Play, Icon::Pause, Icon::Prev, Icon::Next].map(glyph));
+        assert_eq!(SOLID_TRANSPORT.map(outline_transport), ['\u{E768}', '\u{E769}', '\u{E892}', '\u{E893}']);
+        for i in Icon::ALL.iter().filter(|i| !SOLID_TRANSPORT.contains(&glyph(**i))) {
+            assert_eq!(outline_transport(glyph(*i)), glyph(*i), "{i:?}");
+        }
     }
 
     #[test]

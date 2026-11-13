@@ -1,7 +1,8 @@
 //! Dev tool: renders every icon and a Turkish text sample in each face and weight to a PNG,
 //! to check icon code points and font fallback by eye.
 //! Usage: `glyphsheet [out.png] [--probe E768,F5B0,...]` (probe draws extra code points, 12 to a
-//! row). `PEBBLY_FONTS=win10` draws with Windows 10's fonts (Segoe MDL2 Assets, Segoe UI).
+//! row). `PEBBLY_FONTS=win10` draws with Windows 10's fonts (Segoe MDL2 Assets, Segoe UI),
+//! `win10-old` as an older Windows 10 whose MDL2 lacks the solid transport controls.
 
 use pebbly::render::gfx::{rect, white, Face, Ink, TextKit, TextStyle, Weight};
 use pebbly::render::icons::{glyph, Icon};

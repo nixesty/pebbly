@@ -58,6 +58,12 @@ export global Theme {
     /// and Segoe UI for Windows 11's Segoe Fluent Icons and Segoe UI Variable.
     in-out property <string> icons: "Segoe Fluent Icons";
     in-out property <bool> mdl2: false;
+    /// An older Windows 10's MDL2 lacks the solid Play, Pause, Prev and Next: its outline ones
+    /// instead, all four together (icons::outline_transport).
+    in-out property <bool> solid-transport: true;
+    out property <string> pause-glyph: solid-transport ? "\u{F8AE}" : "\u{E769}";
+    out property <string> prev-glyph: solid-transport ? "\u{F8AC}" : "\u{E892}";
+    out property <string> next-glyph: solid-transport ? "\u{F8AD}" : "\u{E893}";
     in-out property <string> text-face: "Segoe UI Variable Text";
     in-out property <string> display-face: "Segoe UI Variable Display";
     /// MDL2's battery is wider than Fluent's: drawn smaller, to Fluent's width (icons::mdl2_scale).
