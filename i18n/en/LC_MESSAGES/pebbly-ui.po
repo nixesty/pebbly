@@ -3753,3 +3753,23 @@ msgstr "Moving over from Now Bar"
 #: setup/src/main.rs
 msgid "Now Bar v{} kurulu · Pebbly'ye geçecek"
 msgstr "Now Bar v{} installed · moves to Pebbly"
+
+#: src/settings_ui.rs
+msgid "Ekran"
+msgstr "Display"
+
+#: src/settings_ui.rs
+msgid "Pilin olduğu görev çubuğu: ana ekranınki ya da başka bir ekranınki"
+msgstr "The taskbar the pill lives in: the main display's or another display's"
+
+#: src/settings_ui.rs
+msgid "Ana ekran"
+msgstr "Main display"
+
+#: src/settings_ui.rs
+msgid "Ekran {}"
+msgstr "Display {}"
+
+#: src/settings_ui.rs
+msgid "Tek görev çubuğu"
+msgstr "Only one taskbar"

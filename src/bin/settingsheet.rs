@@ -62,6 +62,12 @@ fn sample(ui: &SettingsWindow) {
         team("364", "Liverpool", "Premier Lig", "LIV", (0xC8, 0x10, 0x2E), (0xFF, 0xFF, 0xFF), true),
     ]));
     st.set_exceptions(model(vec![SharedString::from("vlc.exe"), SharedString::from("mpv.exe")]));
+    let screens = pebbly::settings_ui::screen_choices("", &[(r"\\.\DISPLAY2".into(), (2560, 1440))]);
+    let strings = |v: Vec<String>| model(v.into_iter().map(SharedString::from).collect());
+    st.set_pill_screens(strings(screens.labels));
+    st.set_pill_screen_ids(strings(screens.ids));
+    st.set_pill_screen_notes(strings(screens.notes));
+    st.set_pill_screen(screens.at as i32);
     st.set_api_on(true);
     st.set_api_apps(model(vec![item("a", "Ekin", "ekin.exe", true, false, (0xEB, 0x57, 0x57)), item("b", "Yedekleyici", "python.exe", false, false, (0x2F, 0x80, 0xED))]));
     st.set_buds_status("Kulaklığın pili; bağlanınca ve pil azalınca pilde".into());

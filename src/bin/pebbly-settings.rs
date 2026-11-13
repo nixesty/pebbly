@@ -19,7 +19,7 @@ use pebbly::settings::{
 };
 use pebbly::activities::buds::Paired;
 use pebbly::i18n::{self, Language, LanguagePick};
-use pebbly::settings_ui::{app_badge, at_arg, badge_letter, buds_choices, exception_name, page_arg, search, stand_in_colour, team_code, tidy_presets};
+use pebbly::settings_ui::{app_badge, at_arg, badge_letter, buds_choices, exception_name, page_arg, screen_choices, search, stand_in_colour, team_code, tidy_presets};
 use pebbly::update::{about_row, follow, restart_due, Asking, Outcome, UpdateState};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use slint::winit_030::winit::window::ResizeDirection;
@@ -425,6 +425,14 @@ fn fill(ui: &SettingsWindow, s: &Settings, live_apps: &[String]) {
     st.set_enabled(s.enabled);
     st.set_pill_size(index_of(&[PillSize::Compact, PillSize::Standard, PillSize::Large], &s.pill_size, 1));
     st.set_pill_offset(s.pill_offset_dip as f32);
+    // The other screens with a taskbar now (the main one is first).
+    let others: Vec<(String, (i32, i32))> = pebbly::platform::taskbar::taskbars().into_iter().skip(1).map(|(_, screen, r)| (screen, (r.w, r.h))).collect();
+    let screens = screen_choices(&s.pill_screen, &others);
+    let strings = |v: Vec<String>| model(v.into_iter().map(SharedString::from).collect());
+    st.set_pill_screens(strings(screens.labels));
+    st.set_pill_screen_ids(strings(screens.ids));
+    st.set_pill_screen_notes(strings(screens.notes));
+    st.set_pill_screen(screens.at as i32);
     st.set_pill_opacity(s.pill_opacity_pct as f32);
     st.set_pill_slivers(s.pill_slivers);
     st.set_accent(s.accent_color.to_uppercase().into());
@@ -542,6 +550,7 @@ fn read(ui: &SettingsWindow, base: &Settings) -> Settings {
         enabled: st.get_enabled(),
         pill_size: pick(&[PillSize::Compact, PillSize::Standard, PillSize::Large], st.get_pill_size(), PillSize::Standard),
         pill_offset_dip: st.get_pill_offset().round() as i32,
+        pill_screen: st.get_pill_screen_ids().row_data(st.get_pill_screen().max(0) as usize).map(|s| s.to_string()).unwrap_or_default(),
         pill_opacity_pct: st.get_pill_opacity().round() as u8,
         pill_slivers: st.get_pill_slivers(),
         accent_color: st.get_accent().to_string(),

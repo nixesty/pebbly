@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 
 use windows::core::{w, BSTR, Result};
 use windows::Win32::Foundation::{HWND, RECT};
+use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITORINFOEXW, MONITOR_DEFAULTTONEAREST};
 use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED};
 use windows::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD};
 use windows::Win32::System::SystemInformation::GetTickCount64;
@@ -23,8 +24,76 @@ use crate::platform::windows::post_taskbar_items;
 use crate::platform::os::{self, Generation};
 use crate::render::layout::{RectPx, TaskbarAlign, TaskbarInfo};
 
+/// The main screen's taskbar.
 pub fn find_taskbar() -> Option<HWND> {
     unsafe { FindWindowW(w!("Shell_TrayWnd"), None).ok() }
+}
+
+/// Every taskbar with its screen's device name (`\\.\DISPLAY2`) and rect, the main one first:
+/// the others (Shell_SecondaryTrayWnd) exist while Windows shows the taskbar on all displays.
+pub fn taskbars() -> Vec<(HWND, String, RectPx)> {
+    let mut bars: Vec<HWND> = find_taskbar().into_iter().collect();
+    let mut prev = None;
+    unsafe {
+        while let Ok(bar) = FindWindowExW(None, prev, w!("Shell_SecondaryTrayWnd"), None) {
+            prev = Some(bar);
+            bars.push(bar);
+        }
+    }
+    let nowhere = RectPx { x: 0, y: 0, w: 0, h: 0 };
+    bars.into_iter().map(|bar| (bar, screen_of(bar).unwrap_or_default(), monitor_rect(bar).unwrap_or(nowhere))).collect()
+}
+
+/// The taskbar the pill lives in: the one on `screen` (a device name, as [`taskbars`] gives),
+/// else the main screen's.
+pub fn find_taskbar_for(screen: &str) -> Option<HWND> {
+    let bars = taskbars();
+    let screens: Vec<String> = bars.iter().map(|(_, s, _)| s.clone()).collect();
+    bars.get(pick_bar(screen, &screens)).map(|(bar, _, _)| *bar)
+}
+
+/// Which of `screens` (the main one first) takes the pill for the setting `screen`.
+pub fn pick_bar(screen: &str, screens: &[String]) -> usize {
+    if screen.is_empty() {
+        return 0;
+    }
+    screens.iter().position(|s| s == screen).unwrap_or(0)
+}
+
+fn monitor_info(hwnd: HWND) -> Option<MONITORINFOEXW> {
+    unsafe {
+        let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+        let mut info = MONITORINFOEXW::default();
+        info.monitorInfo.cbSize = std::mem::size_of::<MONITORINFOEXW>() as u32;
+        GetMonitorInfoW(monitor, &mut info as *mut MONITORINFOEXW as *mut MONITORINFO).as_bool().then_some(info)
+    }
+}
+
+/// The device name of the screen `hwnd` is on.
+fn screen_of(hwnd: HWND) -> Option<String> {
+    let info = monitor_info(hwnd)?;
+    let n = info.szDevice.iter().position(|&c| c == 0).unwrap_or(info.szDevice.len());
+    Some(String::from_utf16_lossy(&info.szDevice[..n]))
+}
+
+fn monitor_rect(hwnd: HWND) -> Option<RectPx> {
+    let r = monitor_info(hwnd)?.monitorInfo.rcMonitor;
+    Some(RectPx { x: r.left, y: r.top, w: r.right - r.left, h: r.bottom - r.top })
+}
+
+/// A taskbar sits at the bottom when its middle is in the lower half of its screen (an
+/// auto-hidden one is mostly below it).
+pub fn at_bottom(bar: RectPx, screen: RectPx) -> bool {
+    bar.y + bar.h / 2 > screen.y + screen.h / 2
+}
+
+/// The tray from the first of its elements to the last, those with a size on the bar's row.
+pub fn tray_span(on: RectPx, elements: &[RectPx]) -> Option<(i32, i32)> {
+    let on_row = |r: &&RectPx| r.w > 0 && r.h > 0 && r.bottom() > on.y && r.y < on.bottom();
+    let row: Vec<&RectPx> = elements.iter().filter(on_row).collect();
+    let left = row.iter().map(|r| r.x).min()?;
+    let right = row.iter().map(|r| r.right()).max()?;
+    Some((left, right))
 }
 
 pub fn window_rect(hwnd: HWND) -> Result<RectPx> {
@@ -50,10 +119,16 @@ fn explorer_dword(name: windows::core::PCWSTR) -> Option<u32> {
     status.is_ok().then_some(value)
 }
 
-/// Taskbar rect plus the settings that decide where free space is ([`alignment`]).
+/// Taskbar rect plus the settings that decide where free space is ([`alignment`]). Another
+/// screen's taskbar has no Widgets button, and the shell says the edge only of the main one.
 pub fn taskbar_info(bar: HWND) -> Result<TaskbarInfo> {
     let (align, widgets) = alignment(os::generation(), explorer_dword(w!("TaskbarAl")), explorer_dword(w!("TaskbarDa")));
-    Ok(TaskbarInfo { rect: window_rect(bar)?, align, widgets, bottom: edge().is_none_or(|e| e == ABE_BOTTOM) })
+    let rect = window_rect(bar)?;
+    if find_taskbar() == Some(bar) {
+        return Ok(TaskbarInfo { rect, align, widgets, bottom: edge().is_none_or(|e| e == ABE_BOTTOM) });
+    }
+    let bottom = monitor_rect(bar).is_none_or(|screen| at_bottom(rect, screen));
+    Ok(TaskbarInfo { rect, align, widgets: false, bottom })
 }
 
 /// Which screen edge the taskbar is on (`None`: the shell didn't say; taken as the bottom,
@@ -240,10 +315,11 @@ impl ItemReader {
         }
     }
 
-    /// The items' spans now: the frame's children (one cross-process call, about 6 ms) and the
-    /// tray's window, or Windows 10's windows and buttons. Empty when there is no taskbar.
+    /// The items' spans on the pill's taskbar now: the frame's children (one cross-process call,
+    /// about 6 ms) and the tray's window (or, on another screen's, its XAML elements), or Windows
+    /// 10's windows and buttons. Empty when there is no taskbar.
     fn read(&mut self) -> Vec<(i32, i32)> {
-        let Some(bar) = find_taskbar() else {
+        let Some(bar) = find_taskbar_for(&crate::settings::current().pill_screen) else {
             self.frame = None;
             return Vec::new();
         };
@@ -259,12 +335,35 @@ impl ItemReader {
                 Err(_) => self.frame = None,
             }
         }
-        if let Ok(tray) = unsafe { FindWindowExW(Some(bar), None, w!("TrayNotifyWnd"), None) } {
-            if let Ok(r) = window_rect(tray) {
-                spans.push((r.x, r.right()));
+        match unsafe { FindWindowExW(Some(bar), None, w!("TrayNotifyWnd"), None) } {
+            Ok(tray) => {
+                if let Ok(r) = window_rect(tray) {
+                    spans.push((r.x, r.right()));
+                }
             }
+            // Another screen's taskbar: its clock and buttons are only XAML.
+            Err(_) => spans.extend(tray_span(on, &self.tray_elements(bar))),
         }
         spans
+    }
+
+    /// The rects of the elements Windows 11's XAML tray is made of (the clock, the
+    /// notifications button, Show desktop...: AutomationId SystemTrayIcon).
+    fn tray_elements(&self, bar: HWND) -> Vec<RectPx> {
+        let read = || -> Result<Vec<RectPx>> {
+            unsafe {
+                let id = VARIANT::from(BSTR::from("SystemTrayIcon"));
+                let condition = self.uia.CreatePropertyCondition(UIA_AutomationIdPropertyId, &id)?;
+                let all = self.uia.ElementFromHandle(bar)?.FindAllBuildCache(TreeScope_Descendants, &condition, &self.cache)?;
+                let mut rects = Vec::new();
+                for i in 0..all.Length()? {
+                    let r = all.GetElement(i)?.CachedBoundingRectangle()?;
+                    rects.push(RectPx { x: r.left, y: r.top, w: r.right - r.left, h: r.bottom - r.top });
+                }
+                Ok(rects)
+            }
+        };
+        read().unwrap_or_default()
     }
 
     fn frame(&mut self, bar: HWND) -> Option<IUIAutomationElement> {
@@ -281,10 +380,11 @@ impl ItemReader {
     }
 
     /// Windows 10: the taskbar's and its rebar's windows, and the app buttons in MSTaskListWClass
-    /// (a window as wide as their whole band) from UI Automation.
+    /// (a window as wide as their whole band) from UI Automation. Another screen's taskbar has a
+    /// WorkerW where the main one has its rebar.
     fn read_classic(&self, bar: HWND, on: RectPx) -> Vec<(i32, i32)> {
         let top = children(bar);
-        let rebar = unsafe { FindWindowExW(Some(bar), None, w!("ReBarWindow32"), None) }.ok();
+        let rebar = unsafe { FindWindowExW(Some(bar), None, w!("ReBarWindow32"), None).or_else(|_| FindWindowExW(Some(bar), None, w!("WorkerW"), None)) }.ok();
         let band = rebar.map(children).unwrap_or_default();
         let list = rebar.and_then(|r| unsafe {
             let sw = FindWindowExW(Some(r), None, w!("MSTaskSwWClass"), None).ok()?;
@@ -414,5 +514,73 @@ mod tests {
         let off = RectPx { x: 700, y: 1080, w: 48, h: 40 };
         let items = classic_items(on, &top, &band, &[off]);
         assert_eq!(items, vec![(0, 48), (48, 392), (392, 440), (1660, 1920)]);
+    }
+
+    /// Issue #7: the pill on another screen's taskbar; one that isn't there, the main one's.
+    #[test]
+    fn the_pill_takes_the_chosen_screens_taskbar() {
+        let screens = [r"\\.\DISPLAY1".to_string(), r"\\.\DISPLAY2".to_string()];
+        assert_eq!(pick_bar("", &screens), 0, "the main screen");
+        assert_eq!(pick_bar(r"\\.\DISPLAY2", &screens), 1);
+        assert_eq!(pick_bar(r"\\.\DISPLAY1", &screens), 0);
+        assert_eq!(pick_bar(r"\\.\DISPLAY3", &screens), 0, "not plugged in: the main one");
+    }
+
+    /// The shell says where only the main taskbar is; another screen's is at the bottom when it
+    /// sits in the screen's lower half, auto-hidden (mostly below the screen) too.
+    #[test]
+    fn a_taskbar_is_at_the_bottom_by_where_it_sits() {
+        let screen = RectPx { x: 1920, y: 0, w: 2560, h: 1440 };
+        assert!(at_bottom(RectPx { x: 1920, y: 1392, w: 2560, h: 48 }, screen));
+        assert!(at_bottom(RectPx { x: 1920, y: 1438, w: 2560, h: 48 }, screen), "auto-hidden");
+        assert!(!at_bottom(RectPx { x: 1920, y: 0, w: 2560, h: 48 }, screen));
+    }
+
+    /// Another screen's taskbar has no TrayNotifyWnd: its clock and buttons are XAML elements
+    /// (SystemTrayIcon), and the tray runs from the first to the last on the bar's row.
+    #[test]
+    fn the_tray_spans_its_elements_on_the_row() {
+        let on = RectPx { x: 1920, y: 1030, w: 1920, h: 50 };
+        let el = |x: i32, right: i32| RectPx { x, y: 1030, w: right - x, h: 50 };
+        assert_eq!(tray_span(on, &[el(3790, 3820), el(3703, 3785), el(3825, 3840)]), Some((3703, 3840)));
+        let off_row = RectPx { x: 3500, y: 0, w: 30, h: 30 };
+        assert_eq!(tray_span(on, &[el(3703, 3785), off_row, el(3600, 3600)]), Some((3703, 3785)), "off the row or empty");
+        assert_eq!(tray_span(on, &[]), None);
+    }
+
+    /// This PC's taskbars (read-only): the main one first and the pick falling back to it; the
+    /// XAML tray read the way another screen's is spans what TrayNotifyWnd does on the main one
+    /// (Windows 11). `cargo t --lib live_taskbars -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn live_taskbars() {
+        let bars = taskbars();
+        println!("taskbars: {:?}", bars.iter().map(|(_, s, r)| (s, r)).collect::<Vec<_>>());
+        let main = find_taskbar().expect("a taskbar");
+        assert_eq!(bars[0].0, main);
+        assert_eq!(find_taskbar_for(""), Some(main));
+        assert_eq!(find_taskbar_for(r"\\.\DISPLAY99"), Some(main), "not plugged in");
+        assert_eq!(find_taskbar_for(&bars[0].1), Some(main));
+        let on = window_rect(main).unwrap();
+        assert!(at_bottom(on, monitor_rect(main).unwrap()));
+        if os::generation() == Generation::Windows11 {
+            unsafe { CoInitializeEx(None, COINIT_MULTITHREADED).ok().unwrap() };
+            let reader = ItemReader::new().unwrap();
+            let xaml = tray_span(on, &reader.tray_elements(main)).expect("tray elements");
+            let tray = unsafe { FindWindowExW(Some(main), None, w!("TrayNotifyWnd"), None) }.map(|t| window_rect(t).unwrap()).unwrap();
+            println!("xaml tray {xaml:?}, TrayNotifyWnd ({}, {})", tray.x, tray.right());
+            assert!((xaml.0 - tray.x).abs() <= 4 && (xaml.1 - tray.right()).abs() <= 4);
+        }
+    }
+
+    /// Windows 10's taskbar on another screen: Start, then the buttons' band in a WorkerW (no
+    /// rebar, no tray).
+    #[test]
+    fn a_classic_taskbar_on_another_screen() {
+        let on = RectPx { x: 1920, y: 1040, w: 1920, h: 40 };
+        let top = vec![window("Start", 1920, 1968), window("WorkerW", 1968, 3840)];
+        let band = vec![window("MSTaskSwWClass", 1968, 3840)];
+        let buttons = [RectPx { x: 1968, y: 1040, w: 48, h: 40 }];
+        assert_eq!(classic_items(RectPx { x: 1920, ..on }, &top, &band, &buttons), vec![(1920, 1968), (1968, 2016)]);
     }
 }

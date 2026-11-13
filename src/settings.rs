@@ -157,6 +157,9 @@ pub struct Settings {
     // Görünüm
     /// Moves the pill (and its cards) right (+) or left (−) of where v1 puts it.
     pub pill_offset_dip: i32,
+    /// The screen whose taskbar the pill lives in, by its device name (`\\.\DISPLAY2`); "" for
+    /// the main screen, and the main one's too while that screen isn't there.
+    pub pill_screen: String,
     pub pill_size: PillSize,
     pub pill_opacity_pct: u8,
     pub pill_slivers: bool,
@@ -320,6 +323,7 @@ impl Default for Settings {
             card_close_on_leave: true,
             card_leave_close_ms: 600,
             pill_offset_dip: 0,
+            pill_screen: String::new(),
             pill_size: PillSize::Standard,
             pill_opacity_pct: 92,
             pill_slivers: true,
@@ -805,6 +809,14 @@ mod tests {
         assert!(old.wellbeing_on && old.wellbeing_in_brief && old.wellbeing_limit_moments && old.wellbeing_limits.is_empty());
         let s = parse(r#"{"wellbeing_limits": [{"exe": "Discord.exe", "minutes": 120}, {"exe": "x.exe", "minutes": 0}, {"exe": "y.exe", "minutes": 99999}]}"#);
         assert_eq!(s.wellbeing_limits, vec![AppLimit { exe: "Discord.exe".into(), minutes: 120 }, AppLimit { exe: "y.exe".into(), minutes: 1440 }]);
+    }
+
+    /// Issue #7: the pill on the main screen's taskbar unless another screen is picked.
+    #[test]
+    fn the_pill_is_on_the_main_screen_by_default() {
+        let old: Settings = serde_json::from_str(r#"{"enabled": true}"#).unwrap();
+        assert_eq!(old.pill_screen, "");
+        assert_eq!(parse(r#"{"pill_screen": "\\\\.\\DISPLAY2"}"#).pill_screen, r"\\.\DISPLAY2");
     }
 
     #[test]
