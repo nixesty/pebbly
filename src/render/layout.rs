@@ -1,5 +1,7 @@
 //! Physical-pixel layout: DIP scaling and where the pill and cards sit.
 
+use crate::settings::PillAnchor;
+
 /// DIP to physical-pixel factor (`dpi / 96`). One One UI dp is one DIP.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Scale(pub f32);
@@ -54,15 +56,21 @@ pub struct TaskbarInfo {
     pub bottom: bool,
 }
 
-/// Where the pill sits, in screen pixels. With left-aligned icons the centre of the taskbar
-/// is empty, so the pill is centred; with centred icons it goes to the left (after Widgets).
-/// `offset_dip` (a setting) moves it right (+) or left (−).
-pub fn pill_rect(bar: &TaskbarInfo, w_dip: f32, h_dip: f32, s: &Scale, offset_dip: f32) -> RectPx {
+/// Where the pill sits, in screen pixels. `Auto`: with left-aligned icons the centre of the
+/// taskbar is empty, so the pill is centred; with centred icons it goes to the left end (after
+/// Widgets). The other anchors put it at that end or the middle whatever the icons do, growing
+/// away from its end; [`clear_of`] then keeps it off the icons and the tray. `offset_dip` (a
+/// setting) moves it right (+) or left (−).
+pub fn pill_rect(bar: &TaskbarInfo, anchor: PillAnchor, w_dip: f32, h_dip: f32, s: &Scale, offset_dip: f32) -> RectPx {
     let w = s.even_px(w_dip) as i32;
     let h = s.px(h_dip) as i32;
-    let x = match bar.align {
-        TaskbarAlign::Left => bar.rect.x + (bar.rect.w - w) / 2,
-        TaskbarAlign::Center => bar.rect.x + s.px(if bar.widgets { 170.0 } else { 12.0 }) as i32,
+    // Widgets is at the left end only with the icons centred; with them on the left it's by the tray.
+    let left = bar.rect.x + s.px(if bar.widgets && bar.align == TaskbarAlign::Center { 170.0 } else { 12.0 }) as i32;
+    let middle = bar.rect.x + (bar.rect.w - w) / 2;
+    let x = match (anchor, bar.align) {
+        (PillAnchor::Auto, TaskbarAlign::Left) | (PillAnchor::Center, _) => middle,
+        (PillAnchor::Auto, TaskbarAlign::Center) | (PillAnchor::Left, _) => left,
+        (PillAnchor::Right, _) => bar.rect.right() - s.px(12.0) as i32 - w,
     } + s.px(offset_dip) as i32;
     let y = bar.rect.y + ((bar.rect.h - h) as f32 / 2.0).round() as i32;
     RectPx { x, y, w, h }
@@ -183,7 +191,7 @@ mod tests {
     #[test]
     fn pill_centred_on_left_aligned_taskbar() {
         assert_eq!(
-            pill_rect(&bar(TaskbarAlign::Left, false), 176.0, 32.0, &Scale::from_dpi(120), 0.0),
+            pill_rect(&bar(TaskbarAlign::Left, false), PillAnchor::Auto,176.0, 32.0, &Scale::from_dpi(120), 0.0),
             RectPx { x: 850, y: 1035, w: 220, h: 40 }
         );
     }
@@ -191,17 +199,48 @@ mod tests {
     #[test]
     fn pill_left_when_icons_centred() {
         let s = Scale::from_dpi(120);
-        assert_eq!(pill_rect(&bar(TaskbarAlign::Center, false), 176.0, 32.0, &s, 0.0).x, 15);
-        assert_eq!(pill_rect(&bar(TaskbarAlign::Center, true), 176.0, 32.0, &s, 0.0).x, 213);
+        assert_eq!(pill_rect(&bar(TaskbarAlign::Center, false), PillAnchor::Auto, 176.0, 32.0, &s, 0.0).x, 15);
+        assert_eq!(pill_rect(&bar(TaskbarAlign::Center, true), PillAnchor::Auto, 176.0, 32.0, &s, 0.0).x, 213);
+    }
+
+    /// Issue #3: the pill at the bar's left end, its middle or its right end, whatever the icons
+    /// do (Otomatik keeps the spot above).
+    #[test]
+    fn the_anchor_puts_the_pill_at_an_end_or_the_middle() {
+        let s = Scale::from_dpi(120);
+        for align in [TaskbarAlign::Left, TaskbarAlign::Center] {
+            let at = |anchor| pill_rect(&bar(align, false), anchor, 176.0, 32.0, &s, 0.0).x;
+            assert_eq!(at(PillAnchor::Left), 15, "{align:?}");
+            assert_eq!(at(PillAnchor::Center), 850, "{align:?}");
+            assert_eq!(at(PillAnchor::Right), 1920 - 15 - 220, "{align:?}: 12 DIP in from the right end");
+        }
+        assert_eq!(pill_rect(&bar(TaskbarAlign::Center, true), PillAnchor::Left, 176.0, 32.0, &s, 0.0).x, 213, "after Widgets");
+        // With the icons on the left, Widgets sits by the tray.
+        assert_eq!(pill_rect(&bar(TaskbarAlign::Left, true), PillAnchor::Left, 176.0, 32.0, &s, 0.0).x, 15);
+        // A wider pill grows away from its end.
+        assert_eq!(pill_rect(&bar(TaskbarAlign::Left, false), PillAnchor::Right, 300.0, 32.0, &s, 0.0).right(), 1920 - 15);
+        assert_eq!(pill_rect(&bar(TaskbarAlign::Left, false), PillAnchor::Left, 300.0, 32.0, &s, 0.0).x, 15);
+    }
+
+    /// At the right end the pill and its slivers stop a gap before the tray.
+    #[test]
+    fn a_pill_on_the_right_keeps_left_of_the_tray() {
+        let s = Scale::from_dpi(120);
+        let b = bar(TaskbarAlign::Center, false);
+        let home = pill_rect(&b, PillAnchor::Right, 300.0, 32.0, &s, 0.0);
+        let placed = clear_of(home, 30, 10, &b, &items_at_125(10)).unwrap();
+        assert_eq!(placed.right() + 30, 1424 - 10);
     }
 
     /// The pill offset setting moves the pill (and with it the cards) either way.
     #[test]
     fn pill_offset_moves_it() {
         let (b, s) = (bar(TaskbarAlign::Left, false), Scale::from_dpi(120));
-        let centred = pill_rect(&b, 300.0, 32.0, &s, 0.0);
-        assert_eq!(pill_rect(&b, 300.0, 32.0, &s, -20.0).x, centred.x - 25);
-        assert_eq!(pill_rect(&b, 300.0, 32.0, &s, 40.0).x, centred.x + 50);
+        let centred = pill_rect(&b, PillAnchor::Auto, 300.0, 32.0, &s, 0.0);
+        assert_eq!(pill_rect(&b, PillAnchor::Auto, 300.0, 32.0, &s, -20.0).x, centred.x - 25);
+        assert_eq!(pill_rect(&b, PillAnchor::Auto, 300.0, 32.0, &s, 40.0).x, centred.x + 50);
+        // From an end too.
+        assert_eq!(pill_rect(&b, PillAnchor::Left, 300.0, 32.0, &s, 640.0).x, 15 + 800);
     }
 
     /// A taskbar at 125 %: Start, Search, then 55 px app buttons from 124 px; the tray from
@@ -214,7 +253,7 @@ mod tests {
     }
 
     fn media_home() -> RectPx {
-        pill_rect(&bar(TaskbarAlign::Left, false), 300.0, 32.0, &Scale::from_dpi(120), 0.0)
+        pill_rect(&bar(TaskbarAlign::Left, false), PillAnchor::Auto,300.0, 32.0, &Scale::from_dpi(120), 0.0)
     }
 
     #[test]
@@ -246,7 +285,7 @@ mod tests {
     #[test]
     fn pill_and_slivers_stop_before_the_tray() {
         let s = Scale::from_dpi(120);
-        let home = pill_rect(&bar(TaskbarAlign::Left, false), 300.0, 32.0, &s, 300.0);
+        let home = pill_rect(&bar(TaskbarAlign::Left, false), PillAnchor::Auto,300.0, 32.0, &s, 300.0);
         assert_eq!(home.x, 1147);
         let placed = clear_of(home, 30, 10, &bar(TaskbarAlign::Left, false), &items_at_125(10)).unwrap();
         assert_eq!(placed.x + placed.w + 30, 1414);
@@ -265,7 +304,7 @@ mod tests {
     fn centred_icons_send_the_pill_across() {
         let s = Scale::from_dpi(120);
         let b = bar(TaskbarAlign::Center, true);
-        let home = pill_rect(&b, 220.0, 32.0, &s, 0.0);
+        let home = pill_rect(&b, PillAnchor::Auto, 220.0, 32.0, &s, 0.0);
         let items = [(0, 190), (380, 1000), (1424, 1920)];
         assert_eq!(clear_of(home, 30, 10, &b, &items), Some(RectPx { x: 1010, ..home }));
         // Wider icons leave no room anywhere.
@@ -287,7 +326,7 @@ mod tests {
 
     /// The compact pill's circle at home: as tall as the pill, centred like it.
     fn circle_home() -> RectPx {
-        let r = pill_rect(&bar(TaskbarAlign::Left, false), 32.0, 32.0, &Scale::from_dpi(120), 0.0);
+        let r = pill_rect(&bar(TaskbarAlign::Left, false), PillAnchor::Auto,32.0, 32.0, &Scale::from_dpi(120), 0.0);
         RectPx { w: r.h, ..r }
     }
 

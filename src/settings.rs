@@ -47,6 +47,18 @@ pub enum BudsPcAction {
     Screenshot,
 }
 
+/// Where the pill's home is on the taskbar: `Auto` goes by the icons (the middle when they're on
+/// the left, the left end when they're centred), the others whatever the icons do.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PillAnchor {
+    #[default]
+    Auto,
+    Left,
+    Center,
+    Right,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PillSize {
@@ -155,7 +167,8 @@ pub struct Settings {
     pub card_close_on_leave: bool,
     pub card_leave_close_ms: u32,
     // Görünüm
-    /// Moves the pill (and its cards) right (+) or left (−) of where v1 puts it.
+    pub pill_anchor: PillAnchor,
+    /// Moves the pill (and its cards) right (+) or left (−) of its anchor's spot.
     pub pill_offset_dip: i32,
     pub pill_size: PillSize,
     pub pill_opacity_pct: u8,
@@ -319,6 +332,7 @@ impl Default for Settings {
             tray_left_click: TrayClick::Picker,
             card_close_on_leave: true,
             card_leave_close_ms: 600,
+            pill_anchor: PillAnchor::Auto,
             pill_offset_dip: 0,
             pill_size: PillSize::Standard,
             pill_opacity_pct: 92,
@@ -418,7 +432,10 @@ impl Settings {
         self.brief_name = self.brief_name.trim().chars().take(24).collect::<String>().trim_end().to_string();
         self.card_leave_close_ms = self.card_leave_close_ms.clamp(200, 3000);
         self.claude_ask_wait_s = self.claude_ask_wait_s.clamp(10, 300);
-        self.pill_offset_dip = self.pill_offset_dip.clamp(-200, 200);
+        // Room to cross a wide taskbar from any anchor (2560 px at 100 % is 1280 DIP either side
+        // of its middle); the pill stays on the bar and off its items whatever the number
+        // (layout::clear_of).
+        self.pill_offset_dip = self.pill_offset_dip.clamp(-1600, 1600);
         self.pill_opacity_pct = self.pill_opacity_pct.clamp(70, 100);
         self.material_darkness_pct = self.material_darkness_pct.clamp(10, 60);
         self.material_saturation_pct = self.material_saturation_pct.clamp(100, 250);
@@ -805,6 +822,16 @@ mod tests {
         assert!(old.wellbeing_on && old.wellbeing_in_brief && old.wellbeing_limit_moments && old.wellbeing_limits.is_empty());
         let s = parse(r#"{"wellbeing_limits": [{"exe": "Discord.exe", "minutes": 120}, {"exe": "x.exe", "minutes": 0}, {"exe": "y.exe", "minutes": 99999}]}"#);
         assert_eq!(s.wellbeing_limits, vec![AppLimit { exe: "Discord.exe".into(), minutes: 120 }, AppLimit { exe: "y.exe".into(), minutes: 1440 }]);
+    }
+
+    /// Issue #3: the pill reaches either end of a wide taskbar; where it was by default.
+    #[test]
+    fn the_pill_goes_anywhere_on_the_bar() {
+        let old: Settings = serde_json::from_str(r#"{"enabled": true}"#).unwrap();
+        assert_eq!(old.pill_anchor, PillAnchor::Auto);
+        assert_eq!(parse(r#"{"pill_anchor": "right"}"#).pill_anchor, PillAnchor::Right);
+        assert_eq!(parse(r#"{"pill_offset_dip": -1200}"#).pill_offset_dip, -1200);
+        assert_eq!(parse(r#"{"pill_offset_dip": 5000}"#).pill_offset_dip, 1600);
     }
 
     #[test]

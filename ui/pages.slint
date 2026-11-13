@@ -11,7 +11,8 @@ import { Pill, Pills, Art } from "pills.slint";
 global Fmt {
     public pure function pct(v: float) -> string { return @tr("%{}", round(v)); }
     public pure function offset(v: float) -> string {
-        return abs(v) < 1 ? @tr("Ortada") : (v > 0 ? "+" : "−") + round(abs(v));
+        // Zero is the Konum's own spot, not always the middle.
+        return abs(v) < 1 ? "0" : (v > 0 ? "+" : "−") + round(abs(v));
     }
     public pure function seconds(v: float) -> string {
         let s = round(v);
@@ -271,12 +272,23 @@ export component AppearanceInspector inherits VerticalLayout {
         first: true;
         IRow {
             label: @tr("Konum");
+            note: @tr("Otomatik: simgelere göre");
+            Select {
+                options: [@tr("Otomatik"), @tr("Sol"), @tr("Orta"), @tr("Sağ")];
+                selected <=> Store.pill-anchor;
+                box-width: 110px;
+                picked => { Ui.changed(); }
+            }
+        }
+        IRow {
+            label: @tr("Kaydırma");
             MiniSlider {
                 value <=> Store.pill-offset;
-                minimum: -200;
-                maximum: 200;
+                minimum: -1600;
+                maximum: 1600;
                 step: 2;
                 centred: true;
+                curved: true;
                 text: Fmt.offset(Store.pill-offset);
                 moved => { Ui.changed(); }
             }

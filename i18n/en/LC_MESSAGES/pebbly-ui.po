@@ -2114,10 +2114,6 @@ msgid "Yükseklik 32 DIP"
 msgstr "Height 32 DIP"
 
 #: src/settings_ui.rs
-msgid "Görev çubuğunun ortasından sola ya da sağa"
-msgstr "Left or right of the taskbar's centre"
-
-#: src/settings_ui.rs
 msgid "Zemin opaklığı"
 msgstr "Background opacity"
 
@@ -2676,10 +2672,6 @@ msgstr "Settings…"
 #: src/platform/tray.rs
 msgid "Çıkış"
 msgstr "Quit"
-
-#: ui/pages.slint
-msgid "Ortada"
-msgstr "Centered"
 
 #: ui/pages.slint
 msgid "{} dk {} sn"
@@ -3753,3 +3745,23 @@ msgstr "Moving over from Now Bar"
 #: setup/src/main.rs
 msgid "Now Bar v{} kurulu · Pebbly'ye geçecek"
 msgstr "Now Bar v{} installed · moves to Pebbly"
+
+#: src/settings_ui.rs
+msgid "Görev çubuğunun solu, ortası ya da sağı; Otomatik simgelere göre"
+msgstr "The taskbar's left, middle or right; Automatic goes by the icons"
+
+#: src/settings_ui.rs
+msgid "Kaydırma"
+msgstr "Offset"
+
+#: src/settings_ui.rs
+msgid "Konumundan sola ya da sağa"
+msgstr "Left or right of its position"
+
+#: ui/pages.slint
+msgid "Otomatik: simgelere göre"
+msgstr "Automatic: by the icons"
+
+#: ui/pages.slint
+msgid "Orta"
+msgstr "Middle"
