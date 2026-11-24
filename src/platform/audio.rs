@@ -3,15 +3,16 @@
 
 use std::sync::Mutex;
 
-use windows::core::{implement, Result, GUID, PCWSTR, PWSTR};
+use windows::core::{implement, Interface, Result, GUID, PCWSTR, PWSTR};
 use windows::Win32::Devices::FunctionDiscovery::{PKEY_DeviceInterface_FriendlyName, PKEY_Device_DeviceDesc};
 use windows::Win32::Foundation::PROPERTYKEY;
 use windows::Win32::Media::Audio::Endpoints::{
     IAudioEndpointVolume, IAudioEndpointVolumeCallback, IAudioEndpointVolumeCallback_Impl, IAudioMeterInformation,
 };
 use windows::Win32::Media::Audio::{
-    eCapture, eCommunications, eConsole, eMultimedia, eRender, AUDIO_VOLUME_NOTIFICATION_DATA, EDataFlow, ERole, IMMDevice, IMMDeviceEnumerator, IMMNotificationClient,
-    IMMNotificationClient_Impl, MMDeviceEnumerator, PKEY_AudioEndpoint_FormFactor, DEVICE_STATE, DEVICE_STATE_ACTIVE,
+    eCapture, eCommunications, eConsole, eMultimedia, eRender, AudioSessionStateExpired, AUDIO_VOLUME_NOTIFICATION_DATA, EDataFlow, ERole, IAudioSessionControl2,
+    IAudioSessionManager2, IMMDevice, IMMDeviceEnumerator, IMMNotificationClient, IMMNotificationClient_Impl, ISimpleAudioVolume, MMDeviceEnumerator,
+    PKEY_AudioEndpoint_FormFactor, DEVICE_STATE, DEVICE_STATE_ACTIVE,
 };
 use windows::Win32::System::Com::StructuredStorage::{PropVariantToStringAlloc, PropVariantToUInt32};
 use windows::Win32::System::Com::{CoCreateInstance, CoTaskMemFree, CLSCTX_ALL, STGM_READ};
@@ -231,6 +232,64 @@ pub fn set_output_mute(id: &str, mute: bool) -> Result<()> {
     unsafe { endpoint_volume(id)?.SetMute(mute, std::ptr::null()) }
 }
 
+/// The audio sessions on output `id` that are the media app `app_id`'s (issue #2: its own
+/// volume, not the device's), by their process's exe and session id (`session_of_app`). A
+/// browser plays through one session for all its tabs.
+fn app_sessions(id: &str, app_id: &str) -> Vec<ISimpleAudioVolume> {
+    let read = || -> Result<Vec<ISimpleAudioVolume>> {
+        unsafe {
+            let manager: IAudioSessionManager2 = device(id)?.Activate(CLSCTX_ALL, None)?;
+            let sessions = manager.GetSessionEnumerator()?;
+            let mut found = Vec::new();
+            for i in 0..sessions.GetCount()? {
+                let Ok(control) = sessions.GetSession(i) else { continue };
+                let Ok(control2) = control.cast::<IAudioSessionControl2>() else { continue };
+                if control.GetState().is_ok_and(|s| s == AudioSessionStateExpired) {
+                    continue;
+                }
+                let exe = control2.GetProcessId().ok().and_then(super::fullscreen::exe_of_pid).unwrap_or_default();
+                let session_id = match control2.GetSessionIdentifier() {
+                    Ok(p) => {
+                        let s = p.to_string().unwrap_or_default();
+                        CoTaskMemFree(Some(p.0 as *const _));
+                        s
+                    }
+                    Err(_) => String::new(),
+                };
+                if crate::activities::media::session_of_app(app_id, &exe, &session_id) {
+                    if let Ok(volume) = control.cast::<ISimpleAudioVolume>() {
+                        found.push(volume);
+                    }
+                }
+            }
+            Ok(found)
+        }
+    };
+    read().unwrap_or_default()
+}
+
+/// The media app's volume on output `id` (its first session's, 0–1) and whether it's muted;
+/// None while it has no session there.
+pub fn app_volume(id: &str, app_id: &str) -> Option<(f32, bool)> {
+    let volume = app_sessions(id, app_id).into_iter().next()?;
+    unsafe { Some((volume.GetMasterVolume().ok()?, volume.GetMute().ok()?.as_bool())) }
+}
+
+/// Sets every one of the app's sessions on `id`, so they keep together.
+pub fn set_app_volume(id: &str, app_id: &str, v: f32) -> Result<()> {
+    for volume in app_sessions(id, app_id) {
+        unsafe { volume.SetMasterVolume(v.clamp(0.0, 1.0), std::ptr::null())? };
+    }
+    Ok(())
+}
+
+pub fn set_app_mute(id: &str, app_id: &str, mute: bool) -> Result<()> {
+    for volume in app_sessions(id, app_id) {
+        unsafe { volume.SetMute(mute, std::ptr::null())? };
+    }
+    Ok(())
+}
+
 /// Mutes or unmutes the microphone calls use (the default communications one); its new state.
 pub fn toggle_mic_mute() -> Result<bool> {
     unsafe {
@@ -378,6 +437,29 @@ impl Drop for OutputWatch {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// This PC's audio sessions on the default output (read-only): each one's exe and session
+    /// id, and whether it reads as the app its exe names. `cargo t --lib live_app_sessions --
+    /// --ignored --nocapture` (play something first).
+    #[test]
+    #[ignore]
+    fn live_app_sessions() {
+        unsafe { windows::Win32::System::Com::CoInitializeEx(None, windows::Win32::System::Com::COINIT_MULTITHREADED).ok().unwrap() };
+        let id = unsafe { take_pwstr(enumerator().unwrap().GetDefaultAudioEndpoint(eRender, eMultimedia).unwrap().GetId().unwrap()) };
+        let manager: IAudioSessionManager2 = unsafe { device(&id).unwrap().Activate(CLSCTX_ALL, None).unwrap() };
+        let sessions = unsafe { manager.GetSessionEnumerator().unwrap() };
+        for i in 0..unsafe { sessions.GetCount().unwrap() } {
+            let control = unsafe { sessions.GetSession(i).unwrap() };
+            let control2 = control.cast::<IAudioSessionControl2>().unwrap();
+            let exe = unsafe { control2.GetProcessId() }.ok().and_then(super::super::fullscreen::exe_of_pid).unwrap_or_default();
+            let session_id = unsafe { control2.GetSessionIdentifier().map(|p| p.to_string().unwrap_or_default()).unwrap_or_default() };
+            let found = app_volume(&id, &exe);
+            println!("{exe:?} state {:?} volume {found:?}\n  {session_id}", unsafe { control.GetState() }.map(|s| s.0));
+            if !exe.is_empty() {
+                assert!(found.is_some(), "{exe} by its own name");
+            }
+        }
+    }
 
     #[test]
     fn output_labels() {

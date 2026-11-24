@@ -292,9 +292,58 @@ pub fn app_name(app_id: &str) -> String {
     if words.is_empty() { app_id.to_string() } else { words.join(" ") }
 }
 
+/// Firefox's GSMTC id: a hash, not its name.
+const FIREFOX_ID: &str = "308046B0AF4A39CB";
+
+/// Whether an audio session (its process's `exe`, its session id) is the GSMTC app `app_id`'s:
+/// "Spotify.exe", "Chrome", a path, a reverse-DNS id ("com.github.th-ch.youtube-music"),
+/// Firefox's hash, or a packaged app's "Family_hash!Entry", whose package name is in the
+/// session id (the exe's path).
+pub fn session_of_app(app_id: &str, exe: &str, session_id: &str) -> bool {
+    let norm = |s: &str| s.to_ascii_lowercase().trim_end_matches(".exe").chars().filter(char::is_ascii_alphanumeric).collect::<String>();
+    let exe = norm(exe);
+    if app_id.is_empty() || exe.is_empty() {
+        return false;
+    }
+    if let Some((family, _)) = app_id.split_once('!') {
+        let package = family.split('_').next().unwrap_or(family).to_ascii_lowercase();
+        return session_id.to_ascii_lowercase().contains(&format!("\\{package}_"));
+    }
+    if app_id.eq_ignore_ascii_case(FIREFOX_ID) {
+        return exe == "firefox";
+    }
+    let base = app_id.rsplit(['\\', '/']).next().unwrap_or(app_id).to_ascii_lowercase();
+    let stem = base.trim_end_matches(".exe");
+    norm(stem) == exe || norm(stem.rsplit('.').next().unwrap_or(stem)) == exe
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Issue #2: the media app's own audio session, by what Windows says of each: its process's
+    /// exe and its session id (a packaged app's carries its package's name).
+    #[test]
+    fn the_media_apps_audio_session() {
+        let by_exe = |app_id, exe| session_of_app(app_id, exe, "");
+        assert!(by_exe("Spotify.exe", "Spotify.exe"));
+        assert!(by_exe("Chrome", "chrome.exe"));
+        assert!(by_exe("MSEdge", "msedge.exe"));
+        assert!(by_exe("308046B0AF4A39CB", "firefox.exe"), "Firefox's hashed id");
+        assert!(by_exe("com.github.th-ch.youtube-music", "YouTube Music.exe"), "a reverse-DNS id");
+        assert!(by_exe(r"C:\Program Files\Foo\foobar2000.exe", "foobar2000.exe"), "a path");
+        assert!(!by_exe("Spotify.exe", "chrome.exe"));
+        assert!(!by_exe("Chrome", "msedge.exe"));
+        assert!(!by_exe("308046B0AF4A39CB", "chrome.exe"));
+        assert!(!by_exe("", "chrome.exe"));
+        // Packaged: the package's name in the session id.
+        let packaged = r"{0.0.0.00000000}.{00000000-0000-0000-0000-000000000001}|\Device\HarddiskVolume3\Program Files\WindowsApps\SpotifyAB.SpotifyMusic_1.0.0.0_x64__zpdnekdrzrea0\Spotify.exe%b{00000000-0000-0000-0000-000000000002}";
+        assert!(session_of_app("SpotifyAB.SpotifyMusic_zpdnekdrzrea0!Spotify", "Spotify.exe", packaged));
+        let player = r"{0.0.0.00000000}.{00000000-0000-0000-0000-000000000003}|\Device\HarddiskVolume3\Program Files\WindowsApps\Microsoft.ZuneMusic_11.0.0.0_x64__8wekyb3d8bbwe\Microsoft.Media.Player.exe%b{00000000-0000-0000-0000-000000000004}";
+        assert!(session_of_app("Microsoft.ZuneMusic_8wekyb3d8bbwe!Microsoft.ZuneMusic", "Microsoft.Media.Player.exe", player));
+        let chrome = r"{0.0.0.00000000}.{00000000-0000-0000-0000-000000000005}|\Device\HarddiskVolume3\Program Files\Google\Chrome\Application\chrome.exe%b{00000000-0000-0000-0000-000000000006}";
+        assert!(!session_of_app("Microsoft.ZuneMusic_8wekyb3d8bbwe!Microsoft.ZuneMusic", "chrome.exe", chrome));
+    }
 
     #[test]
     fn two_tabs_of_one_browser_are_two_items() {

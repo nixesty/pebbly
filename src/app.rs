@@ -74,7 +74,7 @@ use crate::settings::{self, CardSize, PillSize, Settings, TrayClick};
 use crate::platform::audio::{
     PeakMeter,
     default_output_level, default_output_name, list_outputs, output_muted, output_volume, picker_order, set_default_output, set_output_mute, set_output_volume,
-    OutputBus, OutputDevice, OutputKind, OutputWatch,
+    app_volume, set_app_mute, set_app_volume, OutputBus, OutputDevice, OutputKind, OutputWatch,
 };
 use crate::platform::autostart::{autostart_enabled, follow_exe, set_autostart};
 use crate::platform::fullscreen::{foreground_exe, fullscreen_now, monitor_of, never_fullscreen, ForegroundMoveHook};
@@ -96,8 +96,8 @@ use crate::platform::tray::{MENU_MUSIC, MENU_QUESTION, MENU_WELLBEING,
 };
 use crate::platform::windows::{post_buds, post_effects_changed, post_matches, post_media, watch_foreground, CardEvent, CardWindow, MainWindow, PillEvent, PillWindow, UiEvent};
 use crate::render::card::{
-    card_accent, card_glow_at, card_radius_dip, card_size_dip, card_tint, clamp_scroll, output_subline, CardAction, CardContent, CardVisual, LyricsView, MediaCard,
-    MediaPage,
+    card_accent, card_glow_at, card_radius_dip, card_size_dip, card_tint, clamp_scroll, output_rows_shown, output_subline, AppVolume, CardAction, CardContent, CardVisual,
+    LyricsView, MediaCard, MediaPage,
     OutputPage, OutputRow, PickerState, StopwatchCard, SubTone, TimerCard,
 };
 use crate::render::morph::PAGE_OUT_MS;
@@ -744,6 +744,8 @@ pub struct App {
     switch_pending: Option<ActivityKind>,
     outputs: Vec<OutputDevice>,
     volume_drag: bool,
+    /// A drag on the playing app's own volume slider (the output page).
+    app_volume_drag: bool,
     /// Whether the pill was last shown, for the log line when that changes.
     pill_shown: Option<bool>,
     /// The waveform: the output's peak meter (made on the first tick), the bars' levels, and
@@ -1021,6 +1023,7 @@ impl App {
             switch_pending: None,
             outputs: Vec::new(),
             volume_drag: false,
+            app_volume_drag: false,
             pill_shown: None,
             meter: None,
             levels: [0.0; 3],
@@ -2915,6 +2918,14 @@ impl App {
                     }
                 }
             }
+            CardAction::AppVolumeMute => {
+                if let Some((device, app)) = self.app_volume_target() {
+                    let muted = app_volume(&device, &app).is_some_and(|(_, m)| m);
+                    if let Err(e) = set_app_mute(&device, &app, !muted) {
+                        log(&format!("app mute: {e:?}"));
+                    }
+                }
+            }
             CardAction::MatchOpen => {
                 if let Some(OpenCard::Activity(ActivityKind::Match(key))) = self.open {
                     if let Some(url) = self.match_of(key).and_then(|m| m.url.clone()) {
@@ -3321,6 +3332,7 @@ impl App {
         self.page_pending = None;
         self.switch_pending = None;
         self.volume_drag = false;
+        self.app_volume_drag = false;
         unsafe {
             let _ = KillTimer(Some(self.ui.card_window.timer_owner()), TIMER_PAGE);
             let _ = KillTimer(Some(self.ui.card_window.timer_owner()), TIMER_SWITCH);
@@ -3374,13 +3386,25 @@ impl App {
             })
             .collect();
         let current = self.current_output();
+        // Issue #2: the playing app's own volume, while it has an audio session on this device.
+        let app = current
+            .and_then(|d| app_volume(&d.id, &m.app_id))
+            .map(|(volume, muted)| AppVolume { name: m.app_name.clone(), volume, muted });
         Some(OutputPage {
             subtitle: format!("{} · {}", m.app_name, m.title),
             volume: current.and_then(|d| output_volume(&d.id)),
             muted: current.and_then(|d| output_muted(&d.id)).unwrap_or(false),
-            scroll: clamp_scroll(ui.scroll as i32, rows.len().saturating_sub(1)),
+            scroll: clamp_scroll(ui.scroll as i32, rows.len().saturating_sub(1), output_rows_shown(app.is_some())),
+            app,
             rows,
         })
+    }
+
+    /// The playing app's id and the current output's, for its own volume.
+    fn app_volume_target(&self) -> Option<(String, String)> {
+        let device = self.current_output()?.id.clone();
+        let app = self.media_of(self.media_target()?)?.app_id.clone();
+        Some((device, app))
     }
 
     /// Makes a row's device Windows' default output; Windows confirms with OutputChanged.
@@ -4361,7 +4385,7 @@ impl App {
             }
             UiEvent::ForegroundMoved => self.check_fullscreen(),
             // A drag on a slider keeps the card open even when the mouse wanders off it.
-            UiEvent::Timer(TIMER_LEAVE) if self.volume_drag || self.seeking.is_some() || dragdrop::hover().is_some() => Ok(()),
+            UiEvent::Timer(TIMER_LEAVE) if self.volume_drag || self.app_volume_drag || self.seeking.is_some() || dragdrop::hover().is_some() => Ok(()),
             UiEvent::Timer(TIMER_LEAVE) => self.close_card(),
             UiEvent::TaskbarCreated => {
                 log("taskbar: TaskbarCreated");
@@ -4451,6 +4475,10 @@ impl App {
                     self.volume_drag = true;
                     let _ = set_output_volume(&id, fraction);
                     self.refresh()?;
+                } else if let (Some(fraction), Some((device, app))) = (self.ui.card.app_volume_fraction(x, y), self.app_volume_target()) {
+                    self.app_volume_drag = true;
+                    let _ = set_app_volume(&device, &app, fraction);
+                    self.refresh()?;
                 }
                 Ok(())
             }
@@ -4460,8 +4488,15 @@ impl App {
                 }
                 self.refresh()
             }
-            UiEvent::Card(CardEvent::Up { .. }) if self.volume_drag => {
+            UiEvent::Card(CardEvent::Move { x, .. }) if self.app_volume_drag => {
+                if let (Some(fraction), Some((device, app))) = (self.ui.card.app_volume_drag(x), self.app_volume_target()) {
+                    let _ = set_app_volume(&device, &app, fraction);
+                }
+                self.refresh()
+            }
+            UiEvent::Card(CardEvent::Up { .. }) if self.volume_drag || self.app_volume_drag => {
                 self.volume_drag = false;
+                self.app_volume_drag = false;
                 self.arm_leave();
                 Ok(())
             }
@@ -4543,10 +4578,14 @@ impl App {
                     if let (Some(_), Some(d)) = (self.ui.card.volume_fraction(x, y), self.current_output()) {
                         let v = output_volume(&d.id).unwrap_or(0.0) + 0.02 * notches as f32;
                         let _ = set_output_volume(&d.id, v);
+                    } else if let (Some(_), Some((device, app))) = (self.ui.card.app_volume_fraction(x, y), self.app_volume_target()) {
+                        let v = app_volume(&device, &app).map_or(0.0, |(v, _)| v) + 0.02 * notches as f32;
+                        let _ = set_app_volume(&device, &app, v);
                     } else {
                         let others = self.output_rows().len().saturating_sub(1);
+                        let shown = output_rows_shown(self.ui.card.has_app_volume());
                         if let Some(ui) = self.output_page.as_mut() {
-                            ui.scroll = clamp_scroll(ui.scroll as i32 - notches, others);
+                            ui.scroll = clamp_scroll(ui.scroll as i32 - notches, others, shown);
                         }
                     }
                     return self.refresh();
