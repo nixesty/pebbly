@@ -18,7 +18,7 @@ use pebbly::settings::{
     self, AnimationSpeed, CardSize, FollowedTeam, Hotkey, Marquee, PillButtons, PillSize, QuestionHotkey, Settings, Theme as Look, TrayClick, WeatherCity,
 };
 use pebbly::activities::buds::Paired;
-use pebbly::i18n::{self, Language, LanguagePick};
+use pebbly::i18n::{self, ClockPick, Language, LanguagePick};
 use pebbly::settings_ui::{app_badge, at_arg, badge_letter, buds_choices, exception_name, page_arg, search, stand_in_colour, team_code, tidy_presets};
 use pebbly::update::{about_row, follow, restart_due, Asking, Outcome, UpdateState};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -411,6 +411,9 @@ fn show_buds(st: &Store, b: &Bridge) {
 /// The Dil choice's order.
 const LANGUAGES: [LanguagePick; 3] = [LanguagePick::Auto, LanguagePick::Turkish, LanguagePick::English];
 
+/// The Saat biçimi choice's order.
+const CLOCKS: [ClockPick; 3] = [ClockPick::Auto, ClockPick::H24, ClockPick::H12];
+
 /// Speaks `p`'s language: the Rust side's strings, and the Slint ones (bundled; "" is the Turkish
 /// they're written in).
 fn speak(p: LanguagePick) {
@@ -443,6 +446,8 @@ fn fill(ui: &SettingsWindow, s: &Settings, live_apps: &[String]) {
     st.set_hotkey(index_of(&HOTKEYS, &s.hotkey_picker, 0));
     st.set_question_hotkey(index_of(&QUESTION_HOTKEYS, &s.hotkey_question, 0));
     st.set_language(index_of(&LANGUAGES, &s.language, 0));
+    st.set_clock(index_of(&CLOCKS, &s.clock, 0));
+    st.set_windows_twelve_hour(i18n::clock_chosen(ClockPick::Auto));
     st.set_tray_click(if s.tray_left_click == TrayClick::Settings { 1 } else { 0 });
     st.set_close_on_leave(s.card_close_on_leave);
     st.set_leave_ms(s.card_leave_close_ms as f32);
@@ -558,6 +563,7 @@ fn read(ui: &SettingsWindow, base: &Settings) -> Settings {
         hotkey_picker: pick(&HOTKEYS, st.get_hotkey(), Hotkey::WinAltN),
         hotkey_question: pick(&QUESTION_HOTKEYS, st.get_question_hotkey(), QuestionHotkey::WinAltC),
         language: pick(&LANGUAGES, st.get_language(), LanguagePick::Auto),
+        clock: pick(&CLOCKS, st.get_clock(), ClockPick::Auto),
         tray_left_click: if st.get_tray_click() == 1 { TrayClick::Settings } else { TrayClick::Picker },
         card_close_on_leave: st.get_close_on_leave(),
         card_leave_close_ms: st.get_leave_ms().round() as u32,

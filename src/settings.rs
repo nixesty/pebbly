@@ -148,6 +148,8 @@ pub struct Settings {
     pub autostart: bool,
     /// The interface's language (`Auto`: Windows' own, Turkish or English).
     pub language: crate::i18n::LanguagePick,
+    /// Times of day on a 24- or 12-hour clock (`Auto`: Windows' own short time).
+    pub clock: crate::i18n::ClockPick,
     pub hotkey_picker: Hotkey,
     /// Opens the question card (a quick question to Claude Code).
     pub hotkey_question: QuestionHotkey,
@@ -314,6 +316,7 @@ impl Default for Settings {
             enabled: true,
             autostart: true,
             language: crate::i18n::LanguagePick::Auto,
+            clock: crate::i18n::ClockPick::Auto,
             hotkey_picker: Hotkey::WinAltN,
             hotkey_question: QuestionHotkey::WinAltC,
             tray_left_click: TrayClick::Picker,
@@ -620,6 +623,7 @@ pub fn current() -> Arc<Settings> {
 
 pub fn install(s: Settings) {
     crate::i18n::set_language(crate::i18n::chosen(s.language));
+    crate::i18n::set_twelve_hour(crate::i18n::clock_chosen(s.clock));
     if let Ok(mut c) = CURRENT.write() {
         *c = Some(Arc::new(s));
     }
@@ -805,6 +809,14 @@ mod tests {
         assert!(old.wellbeing_on && old.wellbeing_in_brief && old.wellbeing_limit_moments && old.wellbeing_limits.is_empty());
         let s = parse(r#"{"wellbeing_limits": [{"exe": "Discord.exe", "minutes": 120}, {"exe": "x.exe", "minutes": 0}, {"exe": "y.exe", "minutes": 99999}]}"#);
         assert_eq!(s.wellbeing_limits, vec![AppLimit { exe: "Discord.exe".into(), minutes: 120 }, AppLimit { exe: "y.exe".into(), minutes: 1440 }]);
+    }
+
+    #[test]
+    fn the_clock_follows_windows_by_default() {
+        let old: Settings = serde_json::from_str(r#"{"enabled": true}"#).unwrap();
+        assert_eq!(old.clock, crate::i18n::ClockPick::Auto);
+        assert_eq!(parse(r#"{"clock": "h12"}"#).clock, crate::i18n::ClockPick::H12);
+        assert_eq!(parse(r#"{"clock": "h24"}"#).clock, crate::i18n::ClockPick::H24);
     }
 
     #[test]

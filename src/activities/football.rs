@@ -477,8 +477,7 @@ pub fn centre_text(m: &MatchSnapshot, now_ms: u64, tz_offset_s: i64) -> String {
         Scheduled => {
             let local = m.kickoff_utc + tz_offset_s;
             if m.time_known {
-                let secs = local.rem_euclid(86_400);
-                format!("{:02}:{:02}", secs / 3600, secs % 3600 / 60)
+                crate::i18n::time_of_day(local)
             } else {
                 // Only the day is fixed: "26.10".
                 let days = local.div_euclid(86_400);

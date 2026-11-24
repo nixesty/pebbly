@@ -266,7 +266,7 @@ pub fn drag_paths(shelf: &Shelf, tile: Option<usize>) -> Vec<PathBuf> {
 
 /// The away card from a report: the span and the first rows, in local time.
 pub fn away_card(r: &AwayReport, offset_s: i64) -> AwayCard {
-    let rows = r.items.iter().take(away::CARD_ROWS).map(|i| AwayRow { kind: i.kind, text: i.text.clone(), time: away::hhmm(i.at_utc + offset_s), crest: None }).collect();
+    let rows = r.items.iter().take(away::CARD_ROWS).map(|i| AwayRow { kind: i.kind, text: i.text.clone(), time: crate::i18n::time_of_day(i.at_utc + offset_s), crest: None }).collect();
     AwayCard { span: away::span_text(r.since_utc + offset_s, r.until_utc + offset_s), rows, more: r.items.len().saturating_sub(away::CARD_ROWS) }
 }
 
@@ -1507,7 +1507,7 @@ impl App {
             hours: hours_ahead(&w.hourly, unix_now())
                 .iter()
                 .take(crate::activities::weather_worker::CARD_HOURS)
-                .map(|(t, temp, code, day)| (clock_text(t + w.utc_offset_s).0, symbol(*code, *day).to_string(), deg(*temp)))
+                .map(|(t, temp, code, day)| (crate::i18n::hour_text(t + w.utc_offset_s), symbol(*code, *day).to_string(), deg(*temp)))
                 .collect(),
             rain: rain_later(&w.hourly, unix_now(), w.utc_offset_s),
             fx: fx_of(w.code, w.is_day),
@@ -1946,7 +1946,7 @@ impl App {
             progress,
             paused: false,
         };
-        let started = |n: &GameNow| trf("Başladı {}", &[&clock_text(n.since_utc + tz_offset_s()).0]);
+        let started = |n: &GameNow| trf("Başladı {}", &[&crate::i18n::time_of_day(n.since_utc + tz_offset_s())]);
         match self.game_moment(key, now) {
             Some(GameEvent::Updated(g)) => Some(card(g, tr("Güncellendi").into(), tr("Oynamaya hazır").into(), None)),
             Some(GameEvent::Played(g, secs)) => Some(card(g, trf("{} oynadın", &[&played_text(*secs)]), String::new(), None)),
@@ -3671,7 +3671,7 @@ impl App {
         let hours = hours_ahead(&w.hourly, unix_now())
             .iter()
             .take(crate::activities::weather_worker::CARD_HOURS)
-            .map(|(t, temp, code, day)| (clock_text(t + w.utc_offset_s).0, symbol(*code, *day).to_string(), deg(*temp)))
+            .map(|(t, temp, code, day)| (crate::i18n::hour_text(t + w.utc_offset_s), symbol(*code, *day).to_string(), deg(*temp)))
             .collect();
         let alert = alerts_now(w, unix_now()).first().filter(|_| settings::current().weather_alerts).map(|a| {
             let (head, detail) = alert_text(a, unix_now(), w.utc_offset_s);
@@ -4137,6 +4137,10 @@ impl App {
     }
 
     fn try_handle(&mut self, e: UiEvent) -> Result<()> {
+        if matches!(e, UiEvent::Environment) {
+            // Region's time format may have changed: Otomatik follows Windows' clock.
+            crate::i18n::set_twelve_hour(crate::i18n::clock_chosen(settings::current().clock));
+        }
         match e {
             UiEvent::Timer(TIMER_TICK) => self.refresh(),
             // Back at the PC: a fresh forecast, and the day's brief if it's due.

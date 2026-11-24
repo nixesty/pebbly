@@ -11,6 +11,7 @@ use pebbly::activities::shelf::FileKind;
 use pebbly::activities::weather::{describe, symbol, WeatherFx};
 use pebbly::activities::weather_alert::AlertKind;
 use pebbly::activities::games::Store;
+use pebbly::i18n::{hour_text, time_of_day};
 use pebbly::render::pill::{paint_media_still, paint_pill_content, PillContent, PillThumb};
 use pebbly::render::card::bud_art;
 use pebbly::activities::buds_nearby::Offer;
@@ -96,11 +97,13 @@ fn thumb(s: &Scale, which: usize) -> PillThumb {
 }
 
 fn main() -> Result<()> {
-    // --en: the painters' own words in English (the samples' lines stay as written).
+    // --en: the painters' own words in English (the samples' lines stay as written); --12h: the
+    // times of day on a 12-hour clock.
     if std::env::args().any(|a| a == "--en") {
         pebbly::i18n::set_language(pebbly::i18n::Language::English);
     }
-    let out = std::env::args().skip(1).find(|a| a != "--en").unwrap_or_else(|| std::env::temp_dir().join("pillsheet.png").to_string_lossy().into_owned());
+    pebbly::i18n::set_twelve_hour(std::env::args().any(|a| a == "--12h"));
+    let out = std::env::args().skip(1).find(|a| !a.starts_with("--")).unwrap_or_else(|| std::env::temp_dir().join("pillsheet.png").to_string_lossy().into_owned());
     unsafe { CoInitializeEx(None, COINIT_MULTITHREADED).ok()? };
     let s = Scale(1.25);
     let pills: Vec<(&str, PillContent)> = vec![
@@ -116,7 +119,7 @@ fn main() -> Result<()> {
         ("Yağmur", PillContent::Rain { snow: false, when: "~20 dk içinde".into() }),
         ("Kar", PillContent::Rain { snow: true, when: "~1 saat içinde".into() }),
         ("Fırtına", PillContent::WeatherAlert { kind: AlertKind::Storm, head: "Fırtına".into(), detail: "~35 dk içinde".into() }),
-        ("Rüzgâr", PillContent::WeatherAlert { kind: AlertKind::Wind, head: "Kuvvetli rüzgâr".into(), detail: "65 km/sa · 21:00".into() }),
+        ("Rüzgâr", PillContent::WeatherAlert { kind: AlertKind::Wind, head: "Kuvvetli rüzgâr".into(), detail: format!("65 km/sa · {}", hour_text(21 * 3600)) }),
         ("Sıcak", PillContent::WeatherAlert { kind: AlertKind::Heat, head: "Aşırı sıcak".into(), detail: "bugün 37°".into() }),
         ("Don", PillContent::WeatherAlert { kind: AlertKind::Frost, head: "Don".into(), detail: "gece -3°".into() }),
         ("Hava kalitesi", PillContent::WeatherAlert { kind: AlertKind::Air, head: "Hava kalitesi çok kötü".into(), detail: "AQI 88".into() }),
@@ -161,8 +164,8 @@ fn main() -> Result<()> {
         ("Buds modu", PillContent::BudsMode(NoiseControl::Anc)),
         ("Buds modu", PillContent::BudsMode(NoiseControl::Ambient)),
         ("Buds modu", PillContent::BudsMode(NoiseControl::Off)),
-        ("Saat ve hava", PillContent::Clock { time: "20:42".into(), date: "Çar 21 Eki".into(), weather: Some((symbol(0, false).into(), "18°".into())), fx: Some(WeatherFx::ClearNight) }),
-        ("Saat (şehirsiz)", PillContent::Clock { time: "09:05".into(), date: "Per 22 Eki".into(), weather: None, fx: None }),
+        ("Saat ve hava", PillContent::Clock { time: time_of_day(20 * 3600 + 42 * 60), date: "Çar 21 Eki".into(), weather: Some((symbol(0, false).into(), "18°".into())), fx: Some(WeatherFx::ClearNight) }),
+        ("Saat (şehirsiz)", PillContent::Clock { time: time_of_day(9 * 3600 + 5 * 60), date: "Per 22 Eki".into(), weather: None, fx: None }),
         ("Hava: güneş", PillContent::Weather { symbol: symbol(0, true).into(), temp: "24°".into(), desc: describe(0).into(), fx: WeatherFx::Sunny }),
         ("Hava: gece", PillContent::Weather { symbol: symbol(0, false).into(), temp: "12°".into(), desc: describe(0).into(), fx: WeatherFx::ClearNight }),
         ("Hava: bulut", PillContent::Weather { symbol: symbol(2, true).into(), temp: "17°".into(), desc: describe(2).into(), fx: WeatherFx::Clouds }),

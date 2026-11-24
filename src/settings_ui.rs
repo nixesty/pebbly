@@ -41,6 +41,7 @@ pub const INDEX: &[Entry] = &[
     e(0, "marquee", n_("Hareket"), n_("Kayan başlık"), n_("Pile sığmayan şarkı adı"), "kayma marquee başlık"),
     e(0, "marquee-speed", n_("Hareket"), n_("Kayma hızı"), n_("Kayan başlığın hızı"), "kayma hız marquee"),
     e(1, "language", n_("Dil"), n_("Arayüzün dili"), n_("Otomatik: Windows'unki; Türkçe ya da İngilizce"), "dil language english ingilizce türkçe turkish arayüz"),
+    e(1, "clock", n_("Saat"), n_("Saat biçimi"), n_("Otomatik: Windows'unki; 24 ya da 12 saat"), "saat biçim 12 24 öö ös am pm clock format"),
     e(1, "autostart", n_("Başlangıç"), n_("Windows ile başlat"), n_("Oturum açınca Pebbly kendiliğinden çalışır"), "başlangıç açılış otomatik"),
     e(1, "hotkey", n_("Kısayol ve tepsi"), n_("Seçici kısayolu"), n_("Zamanlayıcı seçicisini açar"), "klavye tuş hotkey win alt"),
     e(1, "question-hotkey", n_("Kısayol ve tepsi"), n_("Claude'a sor"), n_("Kartta bir yazı kutusu açar, cevap Claude Code'dan akar; pile Ctrl ile tıklamak da açar"), "claude soru sor yapay zeka ai kısayol spotlight"),
@@ -444,6 +445,14 @@ mod tests {
         }
         assert!(rows("adın").contains(&"brief-name"), "{:?}", rows("adın"));
         assert_eq!(search("günaydın")[0].path, "Sistem › Now Brief");
+    }
+
+    #[test]
+    fn search_finds_the_clock_format() {
+        let rows = |q: &str| search(q).into_iter().filter(|h| h.page == 1).map(|h| h.row).collect::<Vec<_>>();
+        for q in ["saat biçimi", "12 saat", "öö", "am pm"] {
+            assert!(rows(q).contains(&"clock"), "{q}: {:?}", rows(q));
+        }
     }
 
     #[test]

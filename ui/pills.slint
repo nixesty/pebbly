@@ -323,7 +323,8 @@ export component Pill inherits Rectangle {
             height: root.ph;
             alignment: start;
             PLabel {
-                text: "20:42";
+                // i18n::time_of_day: the clock Saat biçimi gives.
+                text: Store.twelve-hour ? @tr("{} ÖS", "8:42") : "20:42";
                 font-size: 12.5 * root.u;
                 font-weight: 600;
             }
