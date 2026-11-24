@@ -1,4 +1,5 @@
 pub mod api_server;
+pub mod app_window;
 pub mod ask;
 pub mod audio;
 pub mod autostart;

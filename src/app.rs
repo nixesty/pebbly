@@ -2165,14 +2165,7 @@ impl App {
     fn focus_claude(&self) {
         let Some(OpenCard::Activity(ActivityKind::Live(key))) = self.open else { return };
         let Some(w) = self.live.get(key).and_then(|i| i.info.window) else { return };
-        use windows::Win32::UI::WindowsAndMessaging::{IsIconic, SetForegroundWindow, ShowWindow, SW_RESTORE};
-        let hwnd = HWND(w as *mut _);
-        unsafe {
-            if IsIconic(hwnd).as_bool() {
-                let _ = ShowWindow(hwnd, SW_RESTORE);
-            }
-            let _ = SetForegroundWindow(hwnd);
-        }
+        crate::platform::app_window::bring_to_front(HWND(w as *mut _));
     }
 
     /// The shelf's pill: the newest three, the newest one's name and the count; with `drop_hint`
@@ -2966,6 +2959,15 @@ impl App {
             CardAction::OutputDevice => return self.turn_page(true),
             CardAction::OutputBack => return self.turn_page(false),
             CardAction::OutputPick(row) => return self.pick_output(row),
+            // The app comes to the front; the card goes the way it goes for any other window
+            // (pinned, it stays).
+            CardAction::OpenApp => {
+                if let Some(m) = self.media_target().and_then(|id| self.media_of(id)) {
+                    if !crate::platform::app_window::focus_app(&m.app_id, &m.title) {
+                        log(&format!("media: no window for {}", m.app_id));
+                    }
+                }
+            }
             CardAction::OutputMute => {
                 if let Some(d) = self.current_output() {
                     let muted = output_muted(&d.id).unwrap_or(false);

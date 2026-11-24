@@ -774,6 +774,14 @@ export component MediaInspector inherits VerticalLayout {
             }
         }
         IRow {
+            label: @tr("Uygulamaya geç");
+            note: @tr("Kapağa ya da ada tıklayınca");
+            Toggle {
+                checked <=> Store.card-opens-app;
+                toggled => { Ui.changed(); }
+            }
+        }
+        IRow {
             label: @tr("Duraklayınca kal");
             Select {
                 options: [@tr("1 dk"), @tr("5 dk"), @tr("10 dk"), @tr("30 dk"), @tr("Hep")];

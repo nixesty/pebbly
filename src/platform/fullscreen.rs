@@ -114,6 +114,11 @@ pub fn exe_of(hwnd: HWND) -> Option<String> {
 
 /// File name of process `pid`.
 pub fn exe_of_pid(pid: u32) -> Option<String> {
+    image_of_pid(pid).map(|path| path.rsplit('\\').next().unwrap_or_default().to_string())
+}
+
+/// Full path of process `pid`'s exe (a packaged app's lies under its package's folder).
+pub fn image_of_pid(pid: u32) -> Option<String> {
     use windows::Win32::System::Threading::{OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION};
     unsafe {
         let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
@@ -121,7 +126,7 @@ pub fn exe_of_pid(pid: u32) -> Option<String> {
         let mut len = buf.len() as u32;
         let ok = QueryFullProcessImageNameW(process, PROCESS_NAME_WIN32, windows::core::PWSTR(buf.as_mut_ptr()), &mut len).is_ok();
         let _ = windows::Win32::Foundation::CloseHandle(process);
-        ok.then(|| String::from_utf16_lossy(&buf[..len as usize]).rsplit('\\').next().unwrap_or_default().to_string())
+        ok.then(|| String::from_utf16_lossy(&buf[..len as usize]))
     }
 }
 

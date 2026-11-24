@@ -295,6 +295,30 @@ pub fn app_name(app_id: &str) -> String {
 /// Firefox's GSMTC id: a hash, not its name.
 const FIREFOX_ID: &str = "308046B0AF4A39CB";
 
+/// Which of the windows on screen (exe, its path, the app id the window carries, its title;
+/// topmost first) is the GSMTC app `app_id`'s: by exe and path as its audio session is
+/// ([`session_of_app`]), or by the window's own app id (a Store app's frame, Firefox). Of
+/// several, the one whose title names `title` (a browser's playing tab), else the topmost.
+pub fn pick_window(windows: &[(&str, &str, Option<&str>, &str)], app_id: &str, title: &str) -> Option<usize> {
+    let ours = |&(exe, path, aumid, _): &(&str, &str, Option<&str>, &str)| {
+        aumid.is_some_and(|a| a.eq_ignore_ascii_case(app_id)) || session_of_app(app_id, exe, path)
+    };
+    let found: Vec<usize> = windows.iter().enumerate().filter(|(_, w)| ours(w)).map(|(i, _)| i).collect();
+    let title = title.trim();
+    let named = found.iter().copied().find(|&i| !title.is_empty() && windows[i].3.contains(title));
+    named.or(found.first().copied())
+}
+
+/// How to ask an app with no window on screen to show itself: a Store app through its id,
+/// Spotify (closed to the tray) through its own link. None for the rest: running a browser's
+/// exe again would open a new window, not the playing one.
+pub fn show_target(app_id: &str) -> Option<String> {
+    if app_id.contains('!') {
+        return Some(format!(r"shell:AppsFolder\{app_id}"));
+    }
+    app_id.to_ascii_lowercase().contains("spotify").then(|| "spotify:".to_string())
+}
+
 /// Whether an audio session (its process's `exe`, its session id) is the GSMTC app `app_id`'s:
 /// "Spotify.exe", "Chrome", a path, a reverse-DNS id ("com.github.th-ch.youtube-music"),
 /// Firefox's hash, or a packaged app's "Family_hash!Entry", whose package name is in the
@@ -320,6 +344,37 @@ pub fn session_of_app(app_id: &str, exe: &str, session_id: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The card opens the playing app's own window (One UI's Now Bar opens the player): the one
+    /// whose title names what plays (a browser's tab), else its topmost; by its exe, its path (a
+    /// packaged app's) or the app id the window carries (Store apps, Firefox).
+    #[test]
+    fn the_playing_apps_window() {
+        let zune = "Microsoft.ZuneMusic_8wekyb3d8bbwe!Microsoft.ZuneMusic";
+        let list = [
+            ("Code.exe", r"C:\Apps\Code\Code.exe", None, "main.rs - Code"),
+            ("chrome.exe", r"C:\Apps\Chrome\chrome.exe", None, "Gelen kutusu - Chrome"),
+            ("chrome.exe", r"C:\Apps\Chrome\chrome.exe", None, "Gece Yarısı Treni - YouTube Music - Chrome"),
+            ("ApplicationFrameHost.exe", r"C:\Windows\System32\ApplicationFrameHost.exe", Some(zune), "Medya Oynatıcı"),
+            ("firefox.exe", r"C:\Apps\Firefox\firefox.exe", Some("308046B0AF4A39CB"), "Radyo - Firefox"),
+        ];
+        assert_eq!(pick_window(&list, "Chrome", "Gece Yarısı Treni"), Some(2), "the tab that plays");
+        assert_eq!(pick_window(&list, "Chrome", "Başka bir şarkı"), Some(1), "else the topmost");
+        assert_eq!(pick_window(&list, "Chrome", ""), Some(1));
+        assert_eq!(pick_window(&list, zune, "Bir şarkı"), Some(3), "a Store app by its window's id");
+        assert_eq!(pick_window(&list, "308046B0AF4A39CB", "Bir şarkı"), Some(4));
+        assert_eq!(pick_window(&list, "Spotify.exe", "Bir şarkı"), None, "not on screen");
+    }
+
+    /// With no window on screen (Spotify closed to the tray, a suspended Store app), the app is
+    /// asked to show itself: a Store app through its id, Spotify through its own link.
+    #[test]
+    fn an_app_with_no_window_is_asked_to_show_itself() {
+        let zune = "Microsoft.ZuneMusic_8wekyb3d8bbwe!Microsoft.ZuneMusic";
+        assert_eq!(show_target(zune), Some(format!(r"shell:AppsFolder\{zune}")));
+        assert_eq!(show_target("Spotify.exe").as_deref(), Some("spotify:"));
+        assert_eq!(show_target("Chrome"), None, "a browser would open a new window");
+    }
 
     /// Issue #2: the media app's own audio session, by what Windows says of each: its process's
     /// exe and its session id (a packaged app's carries its package's name).

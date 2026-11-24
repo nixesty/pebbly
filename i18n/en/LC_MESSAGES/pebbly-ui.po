@@ -3825,3 +3825,15 @@ msgstr "While its display is fullscreen, the pill moves to another display with 
 #: ui/pages.slint
 msgid "Görev çubuğu olan bir ekrana"
 msgstr "To one with a taskbar"
+
+#: src/settings_ui.rs
+msgid "Uygulamaya geç"
+msgstr "Open the app"
+
+#: src/settings_ui.rs
+msgid "Kapağa ya da uygulamanın adına tıklayınca çalan uygulamanın penceresi öne gelir"
+msgstr "A click on the cover or the app's name brings the playing app's window to the front"
+
+#: ui/pages.slint
+msgid "Kapağa ya da ada tıklayınca"
+msgstr "Click the cover or name"
