@@ -27,7 +27,8 @@ const fn e(page: u8, row: &'static str, section: &'static str, title: &'static s
 /// Every setting row, in page order (notes §10).
 pub const INDEX: &[Entry] = &[
     e(0, "pill-size", n_("Pil"), n_("Pil boyutu"), n_("Yükseklik 32 DIP"), "büyük küçük normal boyut"),
-    e(0, "pill-offset", n_("Pil"), n_("Konum"), n_("Görev çubuğunun ortasından sola ya da sağa"), "ortala kaydır sol sağ yer"),
+    e(0, "pill-anchor", n_("Pil"), n_("Konum"), n_("Görev çubuğunun solu, ortası ya da sağı; Otomatik simgelere göre"), "sol sağ orta köşe yer konum ortala sağa al sola al"),
+    e(0, "pill-offset", n_("Pil"), n_("Kaydırma"), n_("Konumundan sola ya da sağa"), "kaydır ince ayar yer"),
     e(0, "pill-opacity", n_("Pil"), n_("Zemin opaklığı"), n_("Zamanlayıcı, kronometre, Buds ve maç pillerinde; medya pili kapağın renginde kalır"), "saydamlık şeffaflık opacity zemin"),
     e(0, "pill-slivers", n_("Pil"), n_("Arkadaki etkinlikleri göster"), n_("Öndeki pilin sağından taşan ince şeritler"), "şerit yığın arka"),
     e(0, "wallpaper-accent", n_("Renk"), n_("Duvar kâğıdından"), n_("Vurgu rengi duvar kâğıdının renginden gelir; gri bir duvar kâğıdında seçtiğin renk"), "duvar kağıdı arka plan masaüstü renk palet one ui material you"),
@@ -453,6 +454,15 @@ mod tests {
         for q in ["saat biçimi", "12 saat", "öö", "am pm"] {
             assert!(rows(q).contains(&"clock"), "{q}: {:?}", rows(q));
         }
+    }
+
+    #[test]
+    fn search_finds_where_the_pill_goes() {
+        let rows = |q: &str| search(q).into_iter().filter(|h| h.page == 0).map(|h| h.row).collect::<Vec<_>>();
+        for q in ["konum", "köşe", "sağa al", "orta"] {
+            assert!(rows(q).contains(&"pill-anchor"), "{q}: {:?}", rows(q));
+        }
+        assert!(rows("kaydırma").contains(&"pill-offset"), "{:?}", rows("kaydırma"));
     }
 
     #[test]

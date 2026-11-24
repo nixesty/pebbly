@@ -75,7 +75,7 @@ export component Toggle inherits Rectangle {
     if focus.has-focus: Ring { radius: 10px; w: root.width; h: root.height; }
 }
 
-/// A short slider with its value beside it ("%92", "Ortada"). Drag, click, arrow keys.
+/// A short slider with its value beside it ("%92", "+40"). Drag, click, arrow keys.
 export component MiniSlider inherits HorizontalLayout {
     in-out property <float> value;
     in property <float> minimum: 0;
@@ -83,15 +83,28 @@ export component MiniSlider inherits HorizontalLayout {
     in property <float> step: 1;
     /// What the value reads as.
     in property <string> text;
-    /// A centre mark, and values near zero snap to it (Konum).
+    /// A centre mark, and values near zero snap to it (Kaydırma).
     in property <bool> centred;
+    /// With `centred` and a range symmetric about zero: the value goes as the square of the
+    /// thumb's way from the middle, fine near zero and quick at the ends (±1600 DIP on a 70 px
+    /// way would be 46 DIP a pixel, and zero out of reach).
+    in property <bool> curved;
     in property <bool> enabled: true;
     callback moved(float);
     spacing: 10px;
     alignment: end;
     opacity: enabled ? 1 : 0.4;
 
-    property <float> p: (value - minimum) / max(1, maximum - minimum);
+    property <float> p: curved
+        ? (1 + (value < 0 ? -1 : 1) * sqrt(abs(value) / max(1, maximum))) / 2
+        : (value - minimum) / max(1, maximum - minimum);
+
+    /// The value under `x` on the track.
+    function at(x: length) -> float {
+        let f = clamp((x - 7px) / max(1px, track.width - 14px), 0, 1);
+        let u = 2 * f - 1;
+        return curved ? (u < 0 ? -1 : 1) * u * u * maximum : minimum + f * (maximum - minimum);
+    }
 
     function snap(v: float) -> float {
         let s = clamp(round(v / step) * step, minimum, maximum);
@@ -145,12 +158,12 @@ export component MiniSlider inherits HorizontalLayout {
             mouse-cursor: pointer;
             pointer-event(e) => {
                 if e.kind == PointerEventKind.down && e.button == PointerEventButton.left {
-                    root.set(root.minimum + (self.mouse-x - 7px) / max(1px, track.width - 14px) * (root.maximum - root.minimum));
+                    root.set(root.at(self.mouse-x));
                 }
             }
             moved => {
                 if self.pressed {
-                    root.set(root.minimum + (self.mouse-x - 7px) / max(1px, track.width - 14px) * (root.maximum - root.minimum));
+                    root.set(root.at(self.mouse-x));
                 }
             }
             scroll-event(e) => {

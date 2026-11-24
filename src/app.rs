@@ -507,6 +507,7 @@ fn pill_size_factor(size: PillSize) -> f32 {
 fn needs_rebuild(old: &Settings, new: &Settings) -> bool {
     old.pill_size != new.pill_size
         || old.card_size != new.card_size
+        || old.pill_anchor != new.pill_anchor
         || old.pill_offset_dip != new.pill_offset_dip
         || old.card_blur != new.card_blur
         || old.material_darkness_pct != new.material_darkness_pct
@@ -1230,9 +1231,10 @@ impl App {
         }
     }
 
-    /// Where a pill `width_dip` wide sits with nothing in its way (the offset setting applied).
+    /// Where a pill `width_dip` wide sits with nothing in its way (the position settings applied).
     fn pill_home(info: &TaskbarInfo, s: &Scale, width_dip: f32) -> RectPx {
-        pill_rect(info, width_dip, PILL_H_DIP, s, settings::current().pill_offset_dip as f32)
+        let set = settings::current();
+        pill_rect(info, set.pill_anchor, width_dip, PILL_H_DIP, s, set.pill_offset_dip as f32)
     }
 
     /// The pill's rect at `width_dip`: its home, or beside the taskbar's buttons when they reach

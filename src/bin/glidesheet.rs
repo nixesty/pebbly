@@ -3,9 +3,10 @@
 //! in it; photographs (`<dir>/glide-<phase>-<ms>.png`) while the buttons grow past the pill, while
 //! a wider activity comes in against them (its left edge must stay), while they leave room only
 //! for its circle, then none (Windows 10's stand-in), and while they shrink back.
-//! Usage: `glidesheet [dir] [--win10] [--small] [--scale 1.5]`: Windows 11's taskbar at 125 %, or
-//! Windows 10's (made-up windows read by `classic_items`, as the app reads the real ones) at
-//! 100 % or `--scale`, 40 DIP tall or 30 with `--small` buttons.
+//! Usage: `glidesheet [dir] [--win10] [--small] [--scale 1.5] [--anchor left|center|right]`:
+//! Windows 11's taskbar at 125 %, or Windows 10's (made-up windows read by `classic_items`, as the
+//! app reads the real ones) at 100 % or `--scale`, 40 DIP tall or 30 with `--small` buttons; the
+//! pill where Görünüm › Konum puts it (Otomatik without `--anchor`).
 
 use pebbly::activities::weather::WeatherFx;
 use pebbly::platform::taskbar::{classic_items, BarWindow};
@@ -13,6 +14,7 @@ use pebbly::platform::windows::PillWindow;
 use pebbly::render::gfx::{draw_surface, rect, Gfx};
 use pebbly::render::layout::{fit_pill, pill_fit, pill_rect, RectPx, Scale, TaskbarAlign, TaskbarInfo};
 use pebbly::render::pill::{layout_for, PillContent, PillVisual, MAX_SLIVERS, PILL_H_DIP, SLIVER_STEP_DIP};
+use pebbly::settings::PillAnchor;
 use windows::core::{w, Interface, Result, HSTRING};
 use windows::Win32::Foundation::{GENERIC_WRITE, HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::Graphics::Gdi::*;
@@ -172,6 +174,12 @@ fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let has = |flag: &str| args.iter().any(|a| a == flag);
     let scale = args.iter().position(|a| a == "--scale").and_then(|i| args.get(i + 1)).and_then(|v| v.parse::<f32>().ok());
+    let anchor = match args.iter().position(|a| a == "--anchor").and_then(|i| args.get(i + 1)).map(String::as_str) {
+        Some("left") => PillAnchor::Left,
+        Some("center") => PillAnchor::Center,
+        Some("right") => PillAnchor::Right,
+        _ => PillAnchor::Auto,
+    };
     let dir = args.first().filter(|a| !a.starts_with("--")).cloned().unwrap_or_else(|| std::env::temp_dir().join("glide").to_string_lossy().into_owned());
     let _ = std::fs::create_dir_all(&dir);
     let (win10, small) = (has("--win10"), has("--small"));
@@ -218,9 +226,9 @@ fn main() -> Result<()> {
     let weather = PillContent::Weather { symbol: "⛅".into(), temp: "17°".into(), desc: "Parçalı bulutlu".into(), fx: WeatherFx::Clouds };
     let tail = ps.px(SLIVER_STEP_DIP * MAX_SLIVERS as f32) as i32;
     let gap = s.px(8.0) as i32;
-    let home = |front: &PillContent| pill_rect(&info, front.width_dip(), PILL_H_DIP, &ps, 0.0);
+    let home = |front: &PillContent| pill_rect(&info, anchor, front.width_dip(), PILL_H_DIP, &ps, 0.0);
     let spot = |front: &PillContent, spans: &[(i32, i32)]| {
-        let circle = pill_rect(&info, PILL_H_DIP, PILL_H_DIP, &ps, 0.0);
+        let circle = pill_rect(&info, anchor, PILL_H_DIP, PILL_H_DIP, &ps, 0.0);
         fit_pill(home(front), RectPx { w: circle.h, ..circle }, tail, gap, &info, spans)
     };
     // How many buttons each phase has: the most that leave the timer at home, a few more, the

@@ -15,7 +15,7 @@ use pebbly::platform::audio::{list_outputs, picker_order};
 use pebbly::platform::fullscreen::visible_apps;
 use pebbly::render::card::output_subline;
 use pebbly::settings::{
-    self, AnimationSpeed, CardSize, FollowedTeam, Hotkey, Marquee, PillButtons, PillSize, QuestionHotkey, Settings, Theme as Look, TrayClick, WeatherCity,
+    self, AnimationSpeed, CardSize, FollowedTeam, Hotkey, Marquee, PillAnchor, PillButtons, PillSize, QuestionHotkey, Settings, Theme as Look, TrayClick, WeatherCity,
 };
 use pebbly::activities::buds::Paired;
 use pebbly::i18n::{self, ClockPick, Language, LanguagePick};
@@ -414,6 +414,9 @@ const LANGUAGES: [LanguagePick; 3] = [LanguagePick::Auto, LanguagePick::Turkish,
 /// The Saat biçimi choice's order.
 const CLOCKS: [ClockPick; 3] = [ClockPick::Auto, ClockPick::H24, ClockPick::H12];
 
+/// The pill's Konum choice's order.
+const ANCHORS: [PillAnchor; 4] = [PillAnchor::Auto, PillAnchor::Left, PillAnchor::Center, PillAnchor::Right];
+
 /// Speaks `p`'s language: the Rust side's strings, and the Slint ones (bundled; "" is the Turkish
 /// they're written in).
 fn speak(p: LanguagePick) {
@@ -427,6 +430,7 @@ fn fill(ui: &SettingsWindow, s: &Settings, live_apps: &[String]) {
     let st = ui.global::<Store>();
     st.set_enabled(s.enabled);
     st.set_pill_size(index_of(&[PillSize::Compact, PillSize::Standard, PillSize::Large], &s.pill_size, 1));
+    st.set_pill_anchor(index_of(&ANCHORS, &s.pill_anchor, 0));
     st.set_pill_offset(s.pill_offset_dip as f32);
     st.set_pill_opacity(s.pill_opacity_pct as f32);
     st.set_pill_slivers(s.pill_slivers);
@@ -546,6 +550,7 @@ fn read(ui: &SettingsWindow, base: &Settings) -> Settings {
     Settings {
         enabled: st.get_enabled(),
         pill_size: pick(&[PillSize::Compact, PillSize::Standard, PillSize::Large], st.get_pill_size(), PillSize::Standard),
+        pill_anchor: pick(&ANCHORS, st.get_pill_anchor(), PillAnchor::Auto),
         pill_offset_dip: st.get_pill_offset().round() as i32,
         pill_opacity_pct: st.get_pill_opacity().round() as u8,
         pill_slivers: st.get_pill_slivers(),
