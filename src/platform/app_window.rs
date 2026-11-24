@@ -81,6 +81,23 @@ fn windows_on_screen() -> Vec<AppWindow> {
     out
 }
 
+/// The app id set on the window itself, if any.
+fn window_aumid(hwnd: HWND) -> Option<String> {
+    use windows::Win32::System::Com::CoTaskMemFree;
+    use windows::Win32::System::Com::StructuredStorage::{PropVariantClear, PropVariantToStringAlloc};
+    use windows::Win32::UI::Shell::PropertiesSystem::{IPropertyStore, SHGetPropertyStoreForWindow};
+    unsafe {
+        let store: IPropertyStore = SHGetPropertyStoreForWindow(hwnd).ok()?;
+        let mut value = store.GetValue(&PKEY_APP_USER_MODEL_ID).ok()?;
+        let text = PropVariantToStringAlloc(&value).ok();
+        let _ = PropVariantClear(&mut value);
+        let text = text?;
+        let s = text.to_string().ok();
+        CoTaskMemFree(Some(text.0 as *const _));
+        s.filter(|s| !s.is_empty())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -99,22 +116,5 @@ mod tests {
         let picked = pick_window(&list, &app, &title);
         println!("{app}: {:?}", picked.map(|i| (&windows[i].exe, &windows[i].aumid, &windows[i].title)));
         println!("with none: {:?}", show_target(&app));
-    }
-}
-
-/// The app id set on the window itself, if any.
-fn window_aumid(hwnd: HWND) -> Option<String> {
-    use windows::Win32::System::Com::CoTaskMemFree;
-    use windows::Win32::System::Com::StructuredStorage::{PropVariantClear, PropVariantToStringAlloc};
-    use windows::Win32::UI::Shell::PropertiesSystem::{IPropertyStore, SHGetPropertyStoreForWindow};
-    unsafe {
-        let store: IPropertyStore = SHGetPropertyStoreForWindow(hwnd).ok()?;
-        let mut value = store.GetValue(&PKEY_APP_USER_MODEL_ID).ok()?;
-        let text = PropVariantToStringAlloc(&value).ok();
-        let _ = PropVariantClear(&mut value);
-        let text = text?;
-        let s = text.to_string().ok();
-        CoTaskMemFree(Some(text.0 as *const _));
-        s.filter(|s| !s.is_empty())
     }
 }
