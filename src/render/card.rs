@@ -142,21 +142,35 @@ pub struct OutputRow {
     pub tone: SubTone,
 }
 
-/// The output picker: the current device first (with the volume), then the others.
+/// The output picker: the current device first (with the volume, and the playing app's own
+/// under it), then the others.
 #[derive(Clone, Debug, PartialEq)]
 pub struct OutputPage {
     pub subtitle: String,
     pub rows: Vec<OutputRow>,
     pub volume: Option<f32>,
     pub muted: bool,
+    /// The media app's own volume on the current device, while it has an audio session there.
+    pub app: Option<AppVolume>,
     pub scroll: usize,
 }
 
-/// Other devices shown under the current one; more scroll with the wheel.
-pub const OUTPUT_VISIBLE_ROWS: usize = 3;
+/// One app's volume (Windows' volume mixer's), its name on the slider.
+#[derive(Clone, Debug, PartialEq)]
+pub struct AppVolume {
+    pub name: String,
+    pub volume: f32,
+    pub muted: bool,
+}
 
-pub fn clamp_scroll(scroll: i32, others: usize) -> usize {
-    scroll.clamp(0, others.saturating_sub(OUTPUT_VISIBLE_ROWS) as i32) as usize
+/// Other devices shown under the current one (one fewer under the app's volume, so the card
+/// keeps its height); more scroll with the wheel.
+pub fn output_rows_shown(app: bool) -> usize {
+    if app { 2 } else { 3 }
+}
+
+pub fn clamp_scroll(scroll: i32, others: usize, shown: usize) -> usize {
+    scroll.clamp(0, others.saturating_sub(shown) as i32) as usize
 }
 
 /// Where `x` falls on a track from `x0` to `x1`, 0–1.
@@ -706,6 +720,8 @@ pub enum CardAction {
     /// A row of the output page (0 = the current device).
     OutputPick(usize),
     OutputMute,
+    /// The speaker on the playing app's own volume slider: mutes that app alone.
+    AppVolumeMute,
     OutputSettings,
     /// The match card's ↗: the match page in the browser.
     MatchOpen,
@@ -919,6 +935,8 @@ pub struct CardVisual {
     seek: Option<(D2D_RECT_F, f32, f32)>,
     /// Output page volume slider, the same way.
     volume: Option<(D2D_RECT_F, f32, f32)>,
+    /// The playing app's own volume slider under it.
+    app_volume: Option<(D2D_RECT_F, f32, f32)>,
     /// Shelf tiles: where a drag-out can start.
     tiles: Vec<D2D_RECT_F>,
     answer_overflow: f32,
@@ -927,7 +945,8 @@ pub struct CardVisual {
 
 impl CardVisual {
     pub fn new(g: &Gfx) -> Result<Self> {
-        Ok(CardVisual { surface: new_surface(g, 1, 1)?, hits: Vec::new(), seek: None, volume: None, tiles: Vec::new(), answer_overflow: 0.0, size_px: (1, 1) })
+        let surface = new_surface(g, 1, 1)?;
+        Ok(CardVisual { surface, hits: Vec::new(), seek: None, volume: None, app_volume: None, tiles: Vec::new(), answer_overflow: 0.0, size_px: (1, 1) })
     }
 
     pub fn size_px(&self) -> (i32, i32) {
@@ -945,6 +964,7 @@ impl CardVisual {
         self.hits = painted.hits;
         self.seek = painted.seek;
         self.volume = painted.volume;
+        self.app_volume = painted.app_volume;
         self.tiles = painted.tiles;
         self.answer_overflow = painted.answer.unwrap_or(0.0);
         self.size_px = (w, h);
@@ -975,6 +995,20 @@ impl CardVisual {
         self.volume.map(|(_, x0, x1)| fraction_on(x as f32, x0, x1))
     }
 
+    /// Output page: the app's volume fraction under (x, y), if the point is on its slider.
+    pub fn app_volume_fraction(&self, x: i32, y: i32) -> Option<f32> {
+        track_fraction(self.app_volume, x, y)
+    }
+
+    pub fn app_volume_drag(&self, x: i32) -> Option<f32> {
+        self.app_volume.map(|(_, x0, x1)| fraction_on(x as f32, x0, x1))
+    }
+
+    /// The output page shows the app's slider (and one device fewer).
+    pub fn has_app_volume(&self) -> bool {
+        self.app_volume.is_some()
+    }
+
     /// The shelf tile under (x, y), if any.
     pub fn tile_at(&self, x: i32, y: i32) -> Option<usize> {
         let (x, y) = (x as f32, y as f32);
@@ -994,6 +1028,7 @@ pub struct Painted {
     hits: Vec<(D2D_RECT_F, CardAction)>,
     seek: Option<(D2D_RECT_F, f32, f32)>,
     volume: Option<(D2D_RECT_F, f32, f32)>,
+    app_volume: Option<(D2D_RECT_F, f32, f32)>,
     tiles: Vec<D2D_RECT_F>,
     /// The question card's answer: how far past its area it runs (px).
     answer: Option<f32>,
@@ -1002,7 +1037,7 @@ pub struct Painted {
 /// Paints `c` into a `w`×`h` px area; dev tools render cards to PNG with it.
 pub fn paint_card(ink: &Ink, c: &CardContent, s: &Scale, w: f32, h: f32) -> Result<Painted> {
     let mut out = Painted::default();
-    let mut p = Painter { ink, s, w, h, hits: &mut out.hits, seek: &mut out.seek, volume: &mut out.volume };
+    let mut p = Painter { ink, s, w, h, hits: &mut out.hits, seek: &mut out.seek, volume: &mut out.volume, app_volume: &mut out.app_volume };
     match c {
         CardContent::Timer(t) => p.timer(t),
         CardContent::Stopwatch(t) => p.stopwatch(t),
@@ -1070,6 +1105,7 @@ struct Painter<'a, 'b> {
     hits: &'a mut Vec<(D2D_RECT_F, CardAction)>,
     seek: &'a mut Option<(D2D_RECT_F, f32, f32)>,
     volume: &'a mut Option<(D2D_RECT_F, f32, f32)>,
+    app_volume: &'a mut Option<(D2D_RECT_F, f32, f32)>,
 }
 
 impl Painter<'_, '_> {
@@ -2215,7 +2251,9 @@ impl Painter<'_, '_> {
         self.hits.push((gear, CardAction::OutputSettings));
 
         let Some(current) = page.rows.first() else { return Ok(()) };
-        let row = rect(d(12.0), d(64.0), d(316.0), d(112.0));
+        // The app's own slider under the device's: the block grows by a row, the list moves down.
+        let app_dip = if page.app.is_some() { 44.0 } else { 0.0 };
+        let row = rect(d(12.0), d(64.0), d(316.0), d(112.0 + app_dip));
         self.ink.rrect(row, d(24.0), white(0.12))?;
         let icon = rect(d(24.0), d(76.0), d(40.0), d(40.0));
         self.ink.rrect(icon, d(20.0), accent)?;
@@ -2231,23 +2269,22 @@ impl Painter<'_, '_> {
         let track = rect(d(24.0), d(128.0), d(292.0), d(32.0));
         self.ink.rrect(track, d(16.0), white(0.16))?;
         if let Some(v) = page.volume {
-            let fill = if page.muted { white(0.28) } else { accent };
-            let fill_w = (track.right - track.left) * v;
-            self.ink.rrect(rect(track.left, track.top, fill_w.max(d(32.0)), d(32.0)), d(16.0), fill)?;
-            let speaker = rect(track.left, track.top, d(36.0), d(32.0));
-            let glyph_icon = if page.muted { Icon::Mute } else { Icon::Volume };
-            self.ink.text(&glyph(glyph_icon).to_string(), speaker, &icon_st(15.0))?;
-            self.hits.push((speaker, CardAction::OutputMute));
-            let label = if page.muted { tr("Sessiz").to_string() } else { crate::i18n::percent((v * 100.0).round() as u32) };
-            let value = TextStyle::new(Face::Text, Weight::SemiBold, d(12.0), white(0.9)).tabular().trailing();
-            self.ink.text(&label, rect(track.right - d(72.0), track.top, d(60.0), d(32.0)), &value)?;
-            *self.volume = Some((rect(track.left + d(36.0), track.top - d(4.0), track.right - track.left - d(36.0), d(40.0)), track.left, track.right));
+            let icon = if page.muted { Icon::Mute } else { Icon::Volume };
+            *self.volume = Some(self.volume_track(track, v, page.muted, icon, CardAction::OutputMute, None, accent)?);
+        }
+        if let Some(app) = &page.app {
+            let track = rect(d(24.0), d(172.0), d(292.0), d(32.0));
+            self.ink.rrect(track, d(16.0), white(0.16))?;
+            let icon = if app.muted { Icon::Mute } else { Icon::Music };
+            *self.app_volume = Some(self.volume_track(track, app.volume, app.muted, icon, CardAction::AppVolumeMute, Some(&app.name), accent)?);
         }
 
         let others = &page.rows[1..];
+        let shown = output_rows_shown(page.app.is_some());
+        let top = d(178.0 + app_dip);
         let name = TextStyle::new(Face::Text, Weight::Medium, d(14.5), white(1.0)).top().ellipsis();
-        for (i, r) in others.iter().enumerate().skip(page.scroll).take(OUTPUT_VISIBLE_ROWS) {
-            let y = d(178.0) + (i - page.scroll) as f32 * d(54.0);
+        for (i, r) in others.iter().enumerate().skip(page.scroll).take(shown) {
+            let y = top + (i - page.scroll) as f32 * d(54.0);
             let row = rect(d(12.0), y, d(316.0), d(52.0));
             self.ink.rrect(row, d(20.0), white(0.05))?;
             let icon = rect(d(20.0), y + d(8.0), d(36.0), d(36.0));
@@ -2259,15 +2296,38 @@ impl Painter<'_, '_> {
             self.hits.push((row, CardAction::OutputPick(i + 1)));
         }
         // More devices below: a "+N" capsule on the last row (the wheel scrolls them in).
-        let hidden = others.len().saturating_sub(page.scroll + OUTPUT_VISIBLE_ROWS);
+        let hidden = others.len().saturating_sub(page.scroll + shown);
         if hidden > 0 {
-            let y = d(178.0) + (OUTPUT_VISIBLE_ROWS - 1) as f32 * d(54.0) + d(15.0);
+            let y = top + (shown - 1) as f32 * d(54.0) + d(15.0);
             let capsule = rect(d(328.0) - d(12.0) - d(36.0), y, d(36.0), d(22.0));
             self.ink.rrect(capsule, d(11.0), white(0.14))?;
             let more = TextStyle::new(Face::Text, Weight::SemiBold, d(11.5), white(0.85)).centered();
             self.ink.text(&format!("+{hidden}"), capsule, &more)?;
         }
         Ok(())
+    }
+
+    /// A volume slider on `track` (its ground already drawn): the fill to `v`, grey while
+    /// muted; `icon` on the left, which `mute` toggles; `name` after it (the app's), the level on
+    /// the right. Gives where a drag takes it and the track's ends.
+    #[allow(clippy::too_many_arguments)]
+    fn volume_track(&mut self, track: D2D_RECT_F, v: f32, muted: bool, icon: Icon, mute: CardAction, name: Option<&str>, accent: [f32; 4]) -> Result<(D2D_RECT_F, f32, f32)> {
+        let d = |x: f32| x * self.s.0;
+        let fill = if muted { white(0.28) } else { accent };
+        let fill_w = (track.right - track.left) * v;
+        self.ink.rrect(rect(track.left, track.top, fill_w.max(d(32.0)), d(32.0)), d(16.0), fill)?;
+        let speaker = rect(track.left, track.top, d(36.0), d(32.0));
+        let icon_st = TextStyle::new(Face::Icons, Weight::Regular, d(15.0), white(1.0)).centered();
+        self.ink.text(&glyph(icon).to_string(), speaker, &icon_st)?;
+        self.hits.push((speaker, mute));
+        if let Some(name) = name {
+            let st = TextStyle::new(Face::Text, Weight::Medium, d(12.0), white(0.9)).ellipsis();
+            self.ink.text(name, rect(track.left + d(36.0), track.top, track.right - track.left - d(36.0) - d(76.0), d(32.0)), &st)?;
+        }
+        let label = if muted { tr("Sessiz").to_string() } else { crate::i18n::percent((v * 100.0).round() as u32) };
+        let value = TextStyle::new(Face::Text, Weight::SemiBold, d(12.0), white(0.9)).tabular().trailing();
+        self.ink.text(&label, rect(track.right - d(72.0), track.top, d(60.0), d(32.0)), &value)?;
+        Ok((rect(track.left + d(36.0), track.top - d(4.0), track.right - track.left - d(36.0), d(40.0)), track.left, track.right))
     }
 
     /// The cover band as a lyrics view: darkened, the line on in the middle (up to two lines),
@@ -2756,13 +2816,15 @@ mod tests {
         assert_eq!(fraction_on(500.0, 0.0, 200.0), 1.0);
     }
 
-    /// Three other devices fit under the current one; the rest scroll.
+    /// Three other devices fit under the current one, two when the app's own volume is under
+    /// the device's (issue #2); the rest scroll.
     #[test]
     fn output_scroll_is_clamped() {
-        assert_eq!(OUTPUT_VISIBLE_ROWS, 3);
-        assert_eq!(clamp_scroll(5, 6), 3);
-        assert_eq!(clamp_scroll(-1, 6), 0);
-        assert_eq!(clamp_scroll(2, 2), 0);
+        assert_eq!((output_rows_shown(false), output_rows_shown(true)), (3, 2));
+        assert_eq!(clamp_scroll(5, 6, 3), 3);
+        assert_eq!(clamp_scroll(5, 6, 2), 4);
+        assert_eq!(clamp_scroll(-1, 6, 3), 0);
+        assert_eq!(clamp_scroll(2, 2, 3), 0);
     }
 
     #[test]

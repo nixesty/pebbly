@@ -8,7 +8,7 @@ use pebbly::activities::buds_nearby::Offer;
 use pebbly::activities::media::{Caps, MediaSnapshot, Timeline};
 use pebbly::platform::audio::{list_outputs, output_volume, picker_order, OutputBus, OutputKind};
 use pebbly::activities::live::{AppIcon, LiveState};
-use pebbly::render::card::{card_size_dip, card_tint, output_subline, paint_card, AppCard, BudsCard, BudsPage, AwayCard, AwayRow, BriefCard, MusicCard, MusicRow, QuestionCard, QuestionShow, BriefMatchRow, BriefMusic, BriefWeather, CardContent, CardTeam, ClaudeAsk, ClaudeCard, LiveCard, LyricsView, MediaCard, MediaPage, OutputPage, OutputRow, ShelfCard, ShelfTile, SubTone, WeatherCard, GameCard, WellbeingApp, WellbeingCard, GAME_COVER_DIP};
+use pebbly::render::card::{card_size_dip, card_tint, output_subline, paint_card, AppCard, AppVolume,BudsCard, BudsPage, AwayCard, AwayRow, BriefCard, MusicCard, MusicRow, QuestionCard, QuestionShow, BriefMatchRow, BriefMusic, BriefWeather, CardContent, CardTeam, ClaudeAsk, ClaudeCard, LiveCard, LyricsView, MediaCard, MediaPage, OutputPage, OutputRow, ShelfCard, ShelfTile, SubTone, WeatherCard, GameCard, WellbeingApp, WellbeingCard, GAME_COVER_DIP};
 use pebbly::activities::games::Store;
 use pebbly::activities::shelf::{file_kind, op_label, ops, ShelfItem, ShelfOp};
 use pebbly::activities::claude::StepKind;
@@ -262,7 +262,12 @@ fn main() -> Result<()> {
     let volume = order.first().and_then(|&i| output_volume(&devices[i].id)).map(|v| v.min(0.62));
     let accent = [0xC6, 0x8F, 0x2E];
     let mut output = MediaCard::new(media(accent), 0, Some("SteelSeries Sonar - Gaming".into()), None, (0, 2), None);
-    output.page = MediaPage::Output(Box::new(OutputPage { subtitle: "YouTube Music · HEAVENLY JUMPSTYLE".into(), rows, volume, muted: false, scroll: 0 }));
+    let page = OutputPage { subtitle: "YouTube Music · HEAVENLY JUMPSTYLE".into(), rows, volume, muted: false, app: None, scroll: 0 };
+    // With the playing app's own volume under the device's (one device fewer shows).
+    let mut output_app = MediaCard::new(media(accent), 0, Some("SteelSeries Sonar - Gaming".into()), None, (0, 2), None);
+    let app = AppVolume { name: "YouTube Music".into(), volume: 0.45, muted: false };
+    output_app.page = MediaPage::Output(Box::new(OutputPage { app: Some(app), ..page.clone() }));
+    output.page = MediaPage::Output(Box::new(page));
     let mut player = MediaCard::new(media(accent), 0, Some("SteelSeries Sonar - Gaming".into()), None, (0, 2), None);
     player.lyrics = Some(LyricsView { before: None, prev: None, current: None, next: None, progress: 1.0 });
     // The lyrics view: the line before, the one on (long enough to wrap), the next.
@@ -343,6 +348,7 @@ fn main() -> Result<()> {
         CardContent::Media(Box::new(lyrics)),
         CardContent::Media(Box::new(moving)),
         CardContent::Media(Box::new(output)),
+        CardContent::Media(Box::new(output_app)),
         CardContent::Buds(buds_cards[0].clone()),
         CardContent::Buds(buds_cards[1].clone()),
         CardContent::Buds(buds_cards[2].clone()),

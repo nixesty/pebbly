@@ -107,10 +107,15 @@ pub fn visible_apps() -> Vec<(String, String)> {
 
 /// File name of `hwnd`'s process ("vlc.exe").
 pub fn exe_of(hwnd: HWND) -> Option<String> {
+    let mut pid = 0u32;
+    unsafe { GetWindowThreadProcessId(hwnd, Some(&mut pid)) };
+    exe_of_pid(pid)
+}
+
+/// File name of process `pid`.
+pub fn exe_of_pid(pid: u32) -> Option<String> {
     use windows::Win32::System::Threading::{OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION};
     unsafe {
-        let mut pid = 0u32;
-        GetWindowThreadProcessId(hwnd, Some(&mut pid));
         let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
         let mut buf = [0u16; 512];
         let mut len = buf.len() as u32;
