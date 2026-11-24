@@ -1361,6 +1361,16 @@ export component FullscreenInspector inherits VerticalLayout {
                 toggled => { Ui.changed(); }
             }
         }
+        // Hiding is what it replaces: with hiding off the pill stays where it is.
+        IRow {
+            label: @tr("Başka ekrana geç");
+            note: @tr("Görev çubuğu olan bir ekrana");
+            Toggle {
+                checked <=> Store.fullscreen-switch;
+                enabled: Store.fullscreen-hide;
+                toggled => { Ui.changed(); }
+            }
+        }
     }
 }
 

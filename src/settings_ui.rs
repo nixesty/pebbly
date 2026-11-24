@@ -86,6 +86,7 @@ pub const INDEX: &[Entry] = &[
     e(5, "opponent-moment", n_("Anlar"), n_("Rakip golünde de an göster"), n_("Pil kısa süre büyür, parıltı olmadan"), "gol rakip an"),
     e(5, "goal-sound", n_("Anlar"), n_("Gol sesi"), n_("Takımın gol atınca kısa bir ses çalar"), "gol ses tada"),
     e(6, "fullscreen-hide", n_("Tam ekran"), n_("Tam ekranda gizle"), n_("Pil ve kartlar, tam ekran bir uygulama öndeyken gizlenir"), "oyun video sunum gizle"),
+    e(6, "fullscreen-switch", n_("Tam ekran"), n_("Başka ekrana geç"), n_("Pilin ekranı tam ekranken pil, görev çubuğu olan başka bir ekrana geçer; uygulama kapanınca döner"), "monitör ikinci ekran oyun taşı"),
     e(6, "exceptions", n_("İstisnalar"), n_("İstisnalar"), n_("Bu uygulamalar tam ekran olsa da Pebbly görünür kalır"), "istisna uygulama exe"),
     e(7, "update", n_("Güncelleme"), n_("Güncelle"), n_("Yeni sürüm varsa indirir, doğrular ve Pebbly'yi yeniden başlatır"), "güncelle güncelleme sürüm versiyon yeni indir github"),
     e(7, "update-check", n_("Güncelleme"), n_("Güncellemeleri denetle"), n_("Günde bir kez GitHub'a yeni sürüm var mı diye sorar"), "güncelleme denetle otomatik github internet"),
@@ -624,6 +625,10 @@ mod tests {
         let rows = |q: &str| search(q).into_iter().filter(|h| h.page == 0).map(|h| h.row).collect::<Vec<_>>();
         for q in ["ekran", "monitör", "ikinci"] {
             assert!(rows(q).contains(&"pill-screen"), "{q}: {:?}", rows(q));
+        }
+        let fullscreen = |q: &str| search(q).into_iter().filter(|h| h.page == 6).map(|h| h.row).collect::<Vec<_>>();
+        for q in ["başka ekrana", "monitör", "oyun"] {
+            assert!(fullscreen(q).contains(&"fullscreen-switch"), "{q}: {:?}", fullscreen(q));
         }
     }
 

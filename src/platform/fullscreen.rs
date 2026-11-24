@@ -153,6 +153,34 @@ pub fn fullscreen_now(monitor: RectPx) -> bool {
     }
 }
 
+/// The window in front now.
+pub fn foreground() -> HWND {
+    unsafe { GetForegroundWindow() }
+}
+
+/// `hwnd` is still there, not minimised, and covers all of `monitor` (the window that sent the
+/// pill to another screen, still fullscreen on the pill's own).
+pub fn covers(hwnd: HWND, monitor: RectPx) -> bool {
+    use windows::Win32::UI::WindowsAndMessaging::{IsIconic, IsWindow};
+    unsafe {
+        if !IsWindow(Some(hwnd)).as_bool() || IsIconic(hwnd).as_bool() {
+            return false;
+        }
+        let mut bounds = RECT::default();
+        let size = std::mem::size_of::<RECT>() as u32;
+        DwmGetWindowAttribute(hwnd, DWMWA_EXTENDED_FRAME_BOUNDS, &mut bounds as *mut RECT as _, size).is_ok()
+            && is_fullscreen_rect(rect(bounds), monitor, "")
+    }
+}
+
+/// Whether the pill stays on the other screen a fullscreen app sent it to: while that app still
+/// covers the pill's own screen (`cause_covers`) and nothing else came to the front there
+/// (`front_on_home`: the front window is on that screen, and is fullscreen or that app). A
+/// click on the other screen moves the front window there, and leaves it be.
+pub fn stays_away(cause_covers: bool, front_on_home: Option<bool>) -> bool {
+    cause_covers && front_on_home.is_none_or(|fullscreen| fullscreen)
+}
+
 /// The island may go over what's in front: not exclusive D3D fullscreen (a topmost window can
 /// knock a game out of its mode) and not a presentation.
 pub fn island_allowed() -> bool {
@@ -209,6 +237,18 @@ mod tests {
     use super::*;
 
     const MONITOR: RectPx = RectPx { x: 0, y: 0, w: 1920, h: 1080 };
+
+    /// Sent to another screen, the pill comes back once the window that sent it no longer
+    /// covers its screen, or something else comes to the front there; a click on the other
+    /// screen (the front window elsewhere) doesn't bring it back.
+    #[test]
+    fn the_pill_stays_away_while_the_fullscreen_app_does() {
+        assert!(stays_away(true, None), "the front window on another screen");
+        assert!(stays_away(true, Some(true)), "the game in front again, or another fullscreen one");
+        assert!(!stays_away(true, Some(false)), "a window in front on its screen");
+        assert!(!stays_away(false, None), "the game closed, minimised or windowed");
+        assert!(!stays_away(false, Some(true)));
+    }
 
     #[test]
     fn the_shell_is_never_fullscreen() {

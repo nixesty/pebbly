@@ -77,7 +77,7 @@ use crate::platform::audio::{
     app_volume, set_app_mute, set_app_volume, OutputBus, OutputDevice, OutputKind, OutputWatch,
 };
 use crate::platform::autostart::{autostart_enabled, follow_exe, set_autostart};
-use crate::platform::fullscreen::{foreground_exe, fullscreen_now, monitor_of, never_fullscreen, ForegroundMoveHook};
+use crate::platform::fullscreen::{covers, foreground, foreground_exe, fullscreen_now, monitor_of, never_fullscreen, stays_away, ForegroundMoveHook};
 use crate::platform::hotkey::{register_hotkey, register_question_hotkey};
 use crate::activities::question::{lines_estimate, plain, Edit as FieldEdit, Field};
 use crate::activities::question_worker::{AskBox, AskMailbox, AskState, AskWorker};
@@ -510,6 +510,7 @@ fn needs_rebuild(old: &Settings, new: &Settings) -> bool {
         || old.pill_anchor != new.pill_anchor
         || old.pill_offset_dip != new.pill_offset_dip
         || old.pill_screen != new.pill_screen
+        || old.fullscreen_switch != new.fullscreen_switch
         || old.card_blur != new.card_blur
         || old.material_darkness_pct != new.material_darkness_pct
         || old.material_saturation_pct != new.material_saturation_pct
@@ -567,6 +568,9 @@ fn open_settings_at(page: Option<u8>) {
 /// those change; the activities (a running timer, ...) live in `App` and survive.
 struct Ui {
     bar: HWND,
+    /// The screen it was built for (a device name; "" the main one): the setting's, or the one
+    /// a fullscreen app sent the pill to.
+    screen: String,
     info: TaskbarInfo,
     /// The taskbar's DPI scale; the pill and the cards draw at it times their size setting.
     scale: Scale,
@@ -585,9 +589,10 @@ struct Ui {
 }
 
 impl Ui {
-    fn build(gfx: &Gfx) -> Result<Ui> {
-        let bar = taskbar::find_taskbar_for(&settings::current().pill_screen)
+    fn build(gfx: &Gfx, screen: &str) -> Result<Ui> {
+        let bar = taskbar::find_taskbar_for(screen)
             .ok_or_else(|| windows::core::Error::new(windows::Win32::Foundation::E_FAIL, "taskbar not found"))?;
+        taskbar::set_pill_screen(screen);
         let info = taskbar::taskbar_info(bar)?;
         let scale = Scale::from_dpi(unsafe { GetDpiForWindow(bar) });
         let s = settings::current();
@@ -612,6 +617,7 @@ impl Ui {
         let card = CardVisual::new(gfx)?;
         Ok(Ui {
             bar,
+            screen: screen.to_string(),
             info,
             scale,
             pill_scale,
@@ -627,10 +633,10 @@ impl Ui {
         })
     }
 
-    /// Still the same taskbar (the chosen screen's, or the main one's while it isn't there),
+    /// Still the same taskbar (its screen's, or the main one's while that isn't there),
     /// geometry, alignment and DPI as when built?
     fn still_valid(&self) -> bool {
-        taskbar::find_taskbar_for(&settings::current().pill_screen) == Some(self.bar)
+        taskbar::find_taskbar_for(&self.screen) == Some(self.bar)
             && taskbar::taskbar_info(self.bar).is_ok_and(|i| {
                 i.rect == self.info.rect && i.align == self.info.align && i.widgets == self.info.widgets && i.bottom == self.info.bottom
             })
@@ -667,6 +673,9 @@ pub struct App {
     stopwatch: Option<StopwatchSlot>,
     picker: PickerState,
     fullscreen: bool,
+    /// Where a fullscreen app on the pill's own screen sent it (that screen, issue #7), and
+    /// the app's window: back home once it no longer covers that screen.
+    fullscreen_away: Option<(String, HWND)>,
     done_pending: bool,
     move_hook: ForegroundMoveHook,
     /// Live media sessions, front first.
@@ -878,7 +887,7 @@ pub struct App {
 impl App {
     pub fn new(compositor: &Compositor) -> Result<Self> {
         let gfx = Gfx::new(compositor)?;
-        let ui = Ui::build(&gfx)?;
+        let ui = Ui::build(&gfx, &settings::current().pill_screen)?;
         let main = MainWindow::create()?;
         if let Err(e) = create_tray(main.hwnd) {
             log(&format!("tray icon failed: {e:?}"));
@@ -976,6 +985,7 @@ impl App {
             stopwatch: None,
             picker: PickerState::default(),
             fullscreen: false,
+            fullscreen_away: None,
             done_pending: false,
             move_hook: ForegroundMoveHook::default(),
             media: Vec::new(),
@@ -1140,7 +1150,7 @@ impl App {
         self.open = None;
         self.card_hover = false;
         self.pill_hover = false;
-        self.ui = Ui::build(&self.gfx)?;
+        self.ui = Ui::build(&self.gfx, &self.current_screen())?;
         self.front = None;
         self.fullscreen = self.fullscreen_hides();
         log(&format!("rebuilt: taskbar {:?}, scale {}", self.ui.info.rect, self.ui.scale.0));
@@ -1187,13 +1197,59 @@ impl App {
     /// Fullscreen that should hide the pill: the setting is on and the app isn't an exception
     /// (the user's, or a screenshot tool's overlay).
     fn fullscreen_hides(&self) -> bool {
+        self.fullscreen_on(self.ui.monitor)
+    }
+
+    /// The same, on `monitor`.
+    fn fullscreen_on(&self, monitor: RectPx) -> bool {
         let s = settings::current();
         s.fullscreen_hide
-            && fullscreen_now(self.ui.monitor)
+            && fullscreen_now(monitor)
             && !foreground_exe().is_some_and(|exe| never_fullscreen(&exe) || s.fullscreen_exceptions.iter().any(|x| x.eq_ignore_ascii_case(&exe)))
     }
 
+    /// The screen the pill lives on now: where a fullscreen app sent it, else its setting's.
+    fn current_screen(&self) -> String {
+        self.fullscreen_away.as_ref().map_or_else(|| settings::current().pill_screen.clone(), |(screen, _)| screen.clone())
+    }
+
+    /// Another screen with a taskbar that isn't fullscreen too, for a fullscreen app on the
+    /// pill's own (issue #7).
+    fn screen_away(&self) -> Option<String> {
+        let bars = taskbar::taskbars();
+        let screens: Vec<String> = bars.iter().map(|(_, screen, _)| screen.clone()).collect();
+        let home = taskbar::pick_bar(&settings::current().pill_screen, &screens);
+        let fullscreen: Vec<bool> = bars.iter().map(|(_, _, monitor)| self.fullscreen_on(*monitor)).collect();
+        taskbar::pick_away(home, &fullscreen).map(|i| screens[i].clone())
+    }
+
+    /// Away on another screen, whether to stay: `cause` still covers the pill's own screen and
+    /// nothing else came to the front there ([`stays_away`]).
+    fn still_away(&self, cause: HWND) -> bool {
+        let home = taskbar::find_taskbar_for(&settings::current().pill_screen).and_then(monitor_of);
+        let Some(home) = home else { return false };
+        let front = foreground();
+        let front_on_home = (monitor_of(front) == Some(home)).then(|| front == cause || self.fullscreen_on(home));
+        stays_away(covers(cause, home), front_on_home)
+    }
+
     fn check_fullscreen(&mut self) -> Result<()> {
+        // Issue #7: a fullscreen app on the pill's screen sends it to another screen's taskbar,
+        // and its going brings it back; with no other screen it hides as before.
+        if let Some((_, cause)) = self.fullscreen_away {
+            if !self.still_away(cause) {
+                log("pill: back to its screen (fullscreen over)");
+                self.fullscreen_away = None;
+                return self.rebuild_or_retry();
+            }
+        } else if settings::current().fullscreen_switch && self.fullscreen_hides() {
+            if let Some(screen) = self.screen_away() {
+                log(&format!("pill: to {screen} (fullscreen: {})", foreground_exe().unwrap_or_default()));
+                self.hide_card_now()?;
+                self.fullscreen_away = Some((screen, foreground()));
+                return self.rebuild_or_retry();
+            }
+        }
         let fullscreen = self.fullscreen_hides();
         if fullscreen == self.fullscreen {
             return Ok(());
@@ -3293,6 +3349,10 @@ impl App {
             self.check_wallpaper();
         }
         self.follow_api();
+        // Another screen picked, or the switch turned off: no longer where fullscreen sent it.
+        if new.pill_screen != old.pill_screen || !new.fullscreen_switch {
+            self.fullscreen_away = None;
+        }
         if needs_rebuild(&old, &new) {
             return self.rebuild_or_retry();
         }
@@ -4400,7 +4460,7 @@ impl App {
             // Explorer restarted: move into the new taskbar as soon as it exists. Its TaskbarCreated
             // comes only once it takes tray icons, 8 to 45 s later here. The chosen screen plugged
             // in (its taskbar comes a moment after WM_DISPLAYCHANGE) or out lands here too.
-            UiEvent::Timer(TIMER_BAR_CHECK) if taskbar::find_taskbar_for(&settings::current().pill_screen) != Some(self.ui.bar) => {
+            UiEvent::Timer(TIMER_BAR_CHECK) if taskbar::find_taskbar_for(&self.current_screen()) != Some(self.ui.bar) => {
                 log("taskbar: a new one");
                 self.rebuild_or_retry()
             }

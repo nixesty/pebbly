@@ -52,6 +52,26 @@ pub fn find_taskbar_for(screen: &str) -> Option<HWND> {
     bars.get(pick_bar(screen, &screens)).map(|(bar, _, _)| *bar)
 }
 
+/// Where a fullscreen app on screen `home` sends the pill: the first other one (of the
+/// taskbars' screens, `fullscreen` saying which are) that isn't fullscreen too.
+pub fn pick_away(home: usize, fullscreen: &[bool]) -> Option<usize> {
+    (0..fullscreen.len()).find(|&i| i != home && !fullscreen[i])
+}
+
+static PILL_SCREEN: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+
+/// The screen the pill lives on now (its setting's, or where a fullscreen app sent it): the
+/// items thread reads that taskbar.
+pub fn set_pill_screen(screen: &str) {
+    if let Ok(mut s) = PILL_SCREEN.lock() {
+        screen.clone_into(&mut s);
+    }
+}
+
+fn pill_screen() -> String {
+    PILL_SCREEN.lock().map(|s| s.clone()).unwrap_or_default()
+}
+
 /// Which of `screens` (the main one first) takes the pill for the setting `screen`.
 pub fn pick_bar(screen: &str, screens: &[String]) -> usize {
     if screen.is_empty() {
@@ -319,7 +339,7 @@ impl ItemReader {
     /// about 6 ms) and the tray's window (or, on another screen's, its XAML elements), or Windows
     /// 10's windows and buttons. Empty when there is no taskbar.
     fn read(&mut self) -> Vec<(i32, i32)> {
-        let Some(bar) = find_taskbar_for(&crate::settings::current().pill_screen) else {
+        let Some(bar) = find_taskbar_for(&pill_screen()) else {
             self.frame = None;
             return Vec::new();
         };
@@ -582,5 +602,16 @@ mod tests {
         let band = vec![window("MSTaskSwWClass", 1968, 3840)];
         let buttons = [RectPx { x: 1968, y: 1040, w: 48, h: 40 }];
         assert_eq!(classic_items(RectPx { x: 1920, ..on }, &top, &band, &buttons), vec![(1920, 1968), (1968, 2016)]);
+    }
+
+    /// A fullscreen app on the pill's screen sends it to the first other screen with a taskbar
+    /// that isn't fullscreen too; none: it stays (and hides).
+    #[test]
+    fn fullscreen_sends_the_pill_to_another_screen() {
+        assert_eq!(pick_away(0, &[true, false]), Some(1));
+        assert_eq!(pick_away(1, &[false, true]), Some(0), "from a second screen to the main one");
+        assert_eq!(pick_away(0, &[true, true, false]), Some(2), "past a fullscreen one");
+        assert_eq!(pick_away(0, &[true, true]), None);
+        assert_eq!(pick_away(0, &[true]), None, "one screen");
     }
 }
