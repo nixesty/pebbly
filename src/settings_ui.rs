@@ -29,6 +29,7 @@ pub const INDEX: &[Entry] = &[
     e(0, "pill-size", n_("Pil"), n_("Pil boyutu"), n_("Yükseklik 32 DIP"), "büyük küçük normal boyut"),
     e(0, "pill-anchor", n_("Pil"), n_("Konum"), n_("Görev çubuğunun solu, ortası ya da sağı; Otomatik simgelere göre"), "sol sağ orta köşe yer konum ortala sağa al sola al"),
     e(0, "pill-offset", n_("Pil"), n_("Kaydırma"), n_("Konumundan sola ya da sağa"), "kaydır ince ayar yer"),
+    e(0, "pill-screen", n_("Pil"), n_("Ekran"), n_("Pilin olduğu görev çubuğu: ana ekranınki ya da başka bir ekranınki"), "monitör ikinci çoklu display ana ekran tam ekran"),
     e(0, "pill-opacity", n_("Pil"), n_("Zemin opaklığı"), n_("Zamanlayıcı, kronometre, Buds ve maç pillerinde; medya pili kapağın renginde kalır"), "saydamlık şeffaflık opacity zemin"),
     e(0, "pill-slivers", n_("Pil"), n_("Arkadaki etkinlikleri göster"), n_("Öndeki pilin sağından taşan ince şeritler"), "şerit yığın arka"),
     e(0, "wallpaper-accent", n_("Renk"), n_("Duvar kâğıdından"), n_("Vurgu rengi duvar kâğıdının renginden gelir; gri bir duvar kâğıdında seçtiğin renk"), "duvar kağıdı arka plan masaüstü renk palet one ui material you"),
@@ -184,6 +185,55 @@ pub fn search(query: &str) -> Vec<SearchHit> {
         .collect();
     scored.sort_by_key(|(score, h)| (std::cmp::Reverse(*score), h.page));
     scored.into_iter().map(|(_, h)| h).collect()
+}
+
+/// The Ekran choice's name for a screen: "Ana ekran" for the main one (`""`), else the number in
+/// its device name (`\\.\DISPLAY2`).
+pub fn screen_label(device: &str) -> String {
+    if device.is_empty() {
+        return tr("Ana ekran").into();
+    }
+    let digits = device.len() - device.trim_end_matches(|c: char| c.is_ascii_digit()).len();
+    let n = &device[device.len() - digits..];
+    trf("Ekran {}", &[&n])
+}
+
+/// The note under the Ekran row for a screen: its size, or that it isn't plugged in (`None`).
+pub fn screen_note(size: Option<(i32, i32)>) -> String {
+    match size {
+        Some((w, h)) => format!("{w}×{h}"),
+        None => tr("Bağlı değil").into(),
+    }
+}
+
+/// The Ekran choice: ids (`""` for the main screen, then the other taskbars' device names),
+/// names, notes and where `current` is.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ScreenChoices {
+    pub ids: Vec<String>,
+    pub labels: Vec<String>,
+    pub notes: Vec<String>,
+    pub at: usize,
+}
+
+/// [`ScreenChoices`] for the setting `current` and the other screens with a taskbar now. A
+/// screen picked but not plugged in stays in the list; with no other taskbar, the main
+/// screen's note says why the list is short.
+pub fn screen_choices(current: &str, others: &[(String, (i32, i32))]) -> ScreenChoices {
+    let main_note = if others.is_empty() { tr("Tek görev çubuğu").into() } else { String::new() };
+    let mut c = ScreenChoices { ids: vec![String::new()], labels: vec![screen_label("")], notes: vec![main_note], at: 0 };
+    for (device, size) in others {
+        c.ids.push(device.clone());
+        c.labels.push(screen_label(device));
+        c.notes.push(screen_note(Some(*size)));
+    }
+    if !c.ids.iter().any(|id| id == current) {
+        c.ids.push(current.to_string());
+        c.labels.push(screen_label(current));
+        c.notes.push(screen_note(None));
+    }
+    c.at = c.ids.iter().position(|id| id == current).unwrap_or(0);
+    c
 }
 
 /// A fullscreen exception as typed: trimmed, ".exe" added. `Ok(None)` for nothing typed;
@@ -541,6 +591,40 @@ mod tests {
         assert_eq!(app_badge("MSEdge"), [0x0C, 0x59, 0xA4]);
         assert_eq!(app_badge("308046B0AF4A39CB"), [0xFF, 0x71, 0x39]);
         assert_eq!(app_badge("vlc.exe"), [0x8A, 0x93, 0xB4]);
+    }
+
+    /// Issue #7: the Ekran choice names a screen by its number; its note under the row gives
+    /// its size, or that it isn't plugged in.
+    #[test]
+    fn screens_read_by_number_and_size() {
+        assert_eq!(screen_label(""), "Ana ekran");
+        assert_eq!(screen_label(r"\\.\DISPLAY2"), "Ekran 2");
+        assert_eq!(screen_note(Some((2560, 1440))), "2560×1440");
+        assert_eq!(screen_note(None), "Bağlı değil");
+        let en = crate::i18n::in_language(crate::i18n::Language::English, || (screen_label(r"\\.\DISPLAY2"), screen_note(None)));
+        assert_eq!(en, ("Display 2".to_string(), "Not connected".to_string()));
+    }
+
+    /// The main screen first, then the others; one picked but unplugged stays in the list, so
+    /// the choice isn't lost. With no other taskbar the note says why the list is short.
+    #[test]
+    fn the_screen_choice_lists_the_main_one_then_the_others() {
+        let others = [(r"\\.\DISPLAY2".to_string(), (2560, 1440))];
+        let c = screen_choices("", &others);
+        assert_eq!(c.ids, vec![String::new(), r"\\.\DISPLAY2".into()]);
+        assert_eq!((c.labels, c.notes, c.at), (vec!["Ana ekran".to_string(), "Ekran 2".into()], vec![String::new(), "2560×1440".into()], 0));
+        assert_eq!(screen_choices(r"\\.\DISPLAY2", &others).at, 1);
+        let c = screen_choices(r"\\.\DISPLAY3", &others);
+        assert_eq!((c.ids.len(), c.labels[2].as_str(), c.notes[2].as_str(), c.at), (3, "Ekran 3", "Bağlı değil", 2), "unplugged: kept");
+        assert_eq!(screen_choices("", &[]).notes, vec!["Tek görev çubuğu".to_string()]);
+    }
+
+    #[test]
+    fn search_finds_the_screen() {
+        let rows = |q: &str| search(q).into_iter().filter(|h| h.page == 0).map(|h| h.row).collect::<Vec<_>>();
+        for q in ["ekran", "monitör", "ikinci"] {
+            assert!(rows(q).contains(&"pill-screen"), "{q}: {:?}", rows(q));
+        }
     }
 
     #[test]

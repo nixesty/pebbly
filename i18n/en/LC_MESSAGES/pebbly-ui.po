@@ -3793,3 +3793,23 @@ msgstr "Automatic: by the icons"
 #: ui/pages.slint
 msgid "Orta"
 msgstr "Middle"
+
+#: src/settings_ui.rs
+msgid "Ekran"
+msgstr "Display"
+
+#: src/settings_ui.rs
+msgid "Pilin olduğu görev çubuğu: ana ekranınki ya da başka bir ekranınki"
+msgstr "The taskbar the pill lives in: the main display's or another display's"
+
+#: src/settings_ui.rs
+msgid "Ana ekran"
+msgstr "Main display"
+
+#: src/settings_ui.rs
+msgid "Ekran {}"
+msgstr "Display {}"
+
+#: src/settings_ui.rs
+msgid "Tek görev çubuğu"
+msgstr "Only one taskbar"

@@ -75,6 +75,12 @@ export global Store {
     /// 0 Otomatik (by the icons), 1 Sol, 2 Orta, 3 Sağ.
     in-out property <int> pill-anchor: 0;
     in-out property <float> pill-offset: 0;
+    /// The Ekran choice: the screens' names, their device names ("" the main screen), the notes
+    /// under the row (size, "Bağlı değil"), the pick.
+    in-out property <[string]> pill-screens: [];
+    in-out property <[string]> pill-screen-ids: [];
+    in-out property <[string]> pill-screen-notes: [];
+    in-out property <int> pill-screen: 0;
     in-out property <float> pill-opacity: 92;
     in-out property <bool> pill-slivers: true;
     in-out property <string> accent: "#5D57D2";

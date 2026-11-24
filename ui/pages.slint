@@ -294,6 +294,16 @@ export component AppearanceInspector inherits VerticalLayout {
             }
         }
         IRow {
+            label: @tr("Ekran");
+            note: Store.pill-screen-notes[Store.pill-screen];
+            Select {
+                options: Store.pill-screens;
+                selected <=> Store.pill-screen;
+                box-width: 140px;
+                picked => { Ui.changed(); }
+            }
+        }
+        IRow {
             label: @tr("Opaklık");
             MiniSlider {
                 value <=> Store.pill-opacity;

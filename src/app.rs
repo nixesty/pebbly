@@ -509,6 +509,7 @@ fn needs_rebuild(old: &Settings, new: &Settings) -> bool {
         || old.card_size != new.card_size
         || old.pill_anchor != new.pill_anchor
         || old.pill_offset_dip != new.pill_offset_dip
+        || old.pill_screen != new.pill_screen
         || old.card_blur != new.card_blur
         || old.material_darkness_pct != new.material_darkness_pct
         || old.material_saturation_pct != new.material_saturation_pct
@@ -585,7 +586,7 @@ struct Ui {
 
 impl Ui {
     fn build(gfx: &Gfx) -> Result<Ui> {
-        let bar = taskbar::find_taskbar()
+        let bar = taskbar::find_taskbar_for(&settings::current().pill_screen)
             .ok_or_else(|| windows::core::Error::new(windows::Win32::Foundation::E_FAIL, "taskbar not found"))?;
         let info = taskbar::taskbar_info(bar)?;
         let scale = Scale::from_dpi(unsafe { GetDpiForWindow(bar) });
@@ -626,9 +627,10 @@ impl Ui {
         })
     }
 
-    /// Still the same taskbar, geometry, alignment and DPI as when built?
+    /// Still the same taskbar (the chosen screen's, or the main one's while it isn't there),
+    /// geometry, alignment and DPI as when built?
     fn still_valid(&self) -> bool {
-        taskbar::find_taskbar() == Some(self.bar)
+        taskbar::find_taskbar_for(&settings::current().pill_screen) == Some(self.bar)
             && taskbar::taskbar_info(self.bar).is_ok_and(|i| {
                 i.rect == self.info.rect && i.align == self.info.align && i.widgets == self.info.widgets && i.bottom == self.info.bottom
             })
@@ -4372,8 +4374,9 @@ impl App {
             }
             UiEvent::Timer(TIMER_REBUILD) => self.rebuild_or_retry(),
             // Explorer restarted: move into the new taskbar as soon as it exists. Its TaskbarCreated
-            // comes only once it takes tray icons, 8 to 45 s later here.
-            UiEvent::Timer(TIMER_BAR_CHECK) if taskbar::find_taskbar() != Some(self.ui.bar) => {
+            // comes only once it takes tray icons, 8 to 45 s later here. The chosen screen plugged
+            // in (its taskbar comes a moment after WM_DISPLAYCHANGE) or out lands here too.
+            UiEvent::Timer(TIMER_BAR_CHECK) if taskbar::find_taskbar_for(&settings::current().pill_screen) != Some(self.ui.bar) => {
                 log("taskbar: a new one");
                 self.rebuild_or_retry()
             }

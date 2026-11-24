@@ -172,6 +172,9 @@ pub struct Settings {
     pub pill_anchor: PillAnchor,
     /// Moves the pill (and its cards) right (+) or left (−) of its anchor's spot.
     pub pill_offset_dip: i32,
+    /// The screen whose taskbar the pill lives in, by its device name (`\\.\DISPLAY2`); "" for
+    /// the main screen, and the main one's too while that screen isn't there.
+    pub pill_screen: String,
     pub pill_size: PillSize,
     pub pill_opacity_pct: u8,
     pub pill_slivers: bool,
@@ -337,6 +340,7 @@ impl Default for Settings {
             card_leave_close_ms: 600,
             pill_anchor: PillAnchor::Auto,
             pill_offset_dip: 0,
+            pill_screen: String::new(),
             pill_size: PillSize::Standard,
             pill_opacity_pct: 92,
             pill_slivers: true,
@@ -844,6 +848,14 @@ mod tests {
         assert_eq!(old.clock, crate::i18n::ClockPick::Auto);
         assert_eq!(parse(r#"{"clock": "h12"}"#).clock, crate::i18n::ClockPick::H12);
         assert_eq!(parse(r#"{"clock": "h24"}"#).clock, crate::i18n::ClockPick::H24);
+    }
+
+    /// Issue #7: the pill on the main screen's taskbar unless another screen is picked.
+    #[test]
+    fn the_pill_is_on_the_main_screen_by_default() {
+        let old: Settings = serde_json::from_str(r#"{"enabled": true}"#).unwrap();
+        assert_eq!(old.pill_screen, "");
+        assert_eq!(parse(r#"{"pill_screen": "\\\\.\\DISPLAY2"}"#).pill_screen, r"\\.\DISPLAY2");
     }
 
     #[test]
