@@ -61,6 +61,7 @@ pub const INDEX: &[Entry] = &[
     e(2, "card-wave", n_("Kart"), n_("Dalgalı ilerleme çubuğu"), n_("Çalarken dalgalanır; kapalıyken düz çizgi"), "dalga ilerleme çubuk"),
     e(2, "media-lyrics", n_("Kart"), n_("Şarkı sözleri"), n_("Kartta «Sözler» çipi; eşzamanlı sözler lrclib.net'ten gelir"), "söz sözler şarkı sözü lyrics lrclib karaoke"),
     e(2, "middle-click", n_("Davranış"), n_("Orta tıkla oynat/durdur"), n_("Medya pilinin üstünde farenin orta tuşu"), "orta tık fare duraklat"),
+    e(2, "card-opens-app", n_("Kart"), n_("Uygulamaya geç"), n_("Kapağa ya da uygulamanın adına tıklayınca çalan uygulamanın penceresi öne gelir"), "pencere aç sekme tarayıcı spotify kapak"),
     e(2, "paused-keep", n_("Davranış"), n_("Duraklatınca pilde kalma süresi"), n_("Sonra pil kaybolur; çalınca geri gelir"), "duraklat kalma süre"),
     e(2, "apps", n_("Uygulamalar"), n_("Uygulamalar"), n_("Pilde gösterilecek medya uygulamaları"), "spotify brave chrome gizle uygulama"),
     e(2, "devices", n_("Ses çıkışı seçicisi"), n_("Ses çıkışı seçicisi"), n_("Medya kartındaki çıkış sayfasında görünen cihazlar"), "hoparlör kulaklık çıkış cihaz ses"),
@@ -496,6 +497,14 @@ mod tests {
         }
         assert!(rows("adın").contains(&"brief-name"), "{:?}", rows("adın"));
         assert_eq!(search("günaydın")[0].path, "Sistem › Now Brief");
+    }
+
+    #[test]
+    fn search_finds_opening_the_app_from_the_card() {
+        let rows = |q: &str| search(q).into_iter().filter(|h| h.page == 2).map(|h| h.row).collect::<Vec<_>>();
+        for q in ["uygulamaya geç", "pencere", "kapak"] {
+            assert!(rows(q).contains(&"card-opens-app"), "{q}: {:?}", rows(q));
+        }
     }
 
     #[test]

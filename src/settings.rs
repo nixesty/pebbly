@@ -203,6 +203,9 @@ pub struct Settings {
     /// 0 = paused media stays until the player closes.
     pub media_paused_keep_min: u32,
     pub media_middle_click: bool,
+    /// A click on the media card's cover or app badge brings the playing app's window to the
+    /// front (One UI's Now Bar opens the player).
+    pub media_card_opens_app: bool,
     pub media_pill_buttons: PillButtons,
     pub media_pill_artist: bool,
     pub media_card_wave: bool,
@@ -365,6 +368,7 @@ impl Default for Settings {
             media_hidden_apps: Vec::new(),
             media_paused_keep_min: 10,
             media_middle_click: true,
+            media_card_opens_app: true,
             media_pill_buttons: PillButtons::All,
             media_pill_artist: true,
             media_card_wave: true,
@@ -856,6 +860,14 @@ mod tests {
         let old: Settings = serde_json::from_str(r#"{"enabled": true}"#).unwrap();
         assert_eq!(old.pill_screen, "");
         assert_eq!(parse(r#"{"pill_screen": "\\\\.\\DISPLAY2"}"#).pill_screen, r"\\.\DISPLAY2");
+    }
+
+    /// The media card's cover opens the playing app by default; it can be turned off.
+    #[test]
+    fn the_card_opens_the_app_by_default() {
+        let old: Settings = serde_json::from_str(r#"{"enabled": true}"#).unwrap();
+        assert!(old.media_card_opens_app);
+        assert!(!parse(r#"{"media_card_opens_app": false}"#).media_card_opens_app);
     }
 
     #[test]

@@ -719,6 +719,8 @@ pub enum CardAction {
     OutputBack,
     /// A row of the output page (0 = the current device).
     OutputPick(usize),
+    /// The media card's cover or app badge: the playing app's own window comes up.
+    OpenApp,
     OutputMute,
     /// The speaker on the playing app's own volume slider: mutes that app alone.
     AppVolumeMute,
@@ -2413,6 +2415,11 @@ impl Painter<'_, '_> {
             self.ink.text(label, chip, &st.centered())?;
             self.hits.push((chip, CardAction::Lyrics));
         }
+        // The rest of the band opens the playing app (after the pin and the chip: they win).
+        let opens_app = crate::settings::current().media_card_opens_app;
+        if opens_app {
+            self.hits.push((band, CardAction::OpenApp));
+        }
         // Page dots: one per Pebbly item, the current one solid (scroll or swipe to change).
         let (page, pages) = card.pages;
         if pages > 1 {
@@ -2448,6 +2455,9 @@ impl Painter<'_, '_> {
         let name_w = d(media_app_name_width_dip(chip_text_w.map(|w| w / self.s.0 + 44.0)));
         let app_name = TextStyle::new(Face::Text, Weight::Regular, d(12.5), white(0.85)).ellipsis();
         self.ink.text(&m.app_name, rect(d(42.0), d(200.0), name_w, d(28.0)), &app_name)?;
+        if opens_app {
+            self.hits.push((rect(badge.left, d(200.0), d(42.0) + name_w - badge.left, d(28.0)), CardAction::OpenApp));
+        }
         if let (Some(output), Some(text_w)) = (&card.output, chip_text_w) {
             let chip_w = text_w + d(44.0);
             let chip = rect(self.w - d(16.0) - chip_w, d(200.0), chip_w, d(28.0));
