@@ -128,6 +128,7 @@ pub struct Fonts {
     display: HSTRING,
     text: HSTRING,
     icons: HSTRING,
+    solid_transport: bool,
 }
 
 pub const ICON_FAMILIES: [&str; 2] = ["Segoe Fluent Icons", "Segoe MDL2 Assets"];
@@ -143,9 +144,44 @@ fn first_installed<'a>(names: &[&'a str], have: impl Fn(&str) -> bool, as_window
     names.iter().copied().find(usable).unwrap_or(names[names.len() - 1])
 }
 
-/// `PEBBLY_FONTS=win10`: the dev sheets draw with what Windows 10 has.
+/// `PEBBLY_FONTS=win10`: the dev sheets draw with what Windows 10 has; `win10-old` with an
+/// older Windows 10's, whose MDL2 lacks the solid transport glyphs.
 fn as_windows_10() -> bool {
-    std::env::var("PEBBLY_FONTS").is_ok_and(|v| v == "win10")
+    std::env::var("PEBBLY_FONTS").is_ok_and(|v| v == "win10" || v == "win10-old")
+}
+
+fn as_old_windows_10() -> bool {
+    std::env::var("PEBBLY_FONTS").is_ok_and(|v| v == "win10-old")
+}
+
+/// Whether `icons` draws Play, Pause, Prev and Next solid: Fluent always does, MDL2 only in
+/// the copies that have all four (`mdl2_has_them`).
+fn solid_transport(icons: &str, mdl2_has_them: impl FnOnce() -> bool, as_old_windows_10: bool) -> bool {
+    icons != ICON_FAMILIES[1] || (!as_old_windows_10 && mdl2_has_them())
+}
+
+/// Whether the system's `family` has every one of `chars` (no when DirectWrite can't tell).
+fn family_has(dwrite: &IDWriteFactory5, family: &str, chars: &[char]) -> bool {
+    unsafe {
+        let mut collection: Option<IDWriteFontCollection1> = None;
+        if dwrite.GetSystemFontCollection(false, &mut collection, false).is_err() {
+            return false;
+        }
+        let Some(fonts) = collection else { return false };
+        let (mut index, mut exists) = (0u32, windows::core::BOOL(0));
+        if fonts.FindFamilyName(&HSTRING::from(family), &mut index, &mut exists).is_err() || !exists.as_bool() {
+            return false;
+        }
+        let font = fonts.GetFontFamily(index).and_then(|f| f.GetFirstMatchingFont(DWRITE_FONT_WEIGHT_REGULAR, DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL));
+        font.is_ok_and(|font| chars.iter().all(|&c| font.HasCharacter(c as u32).is_ok_and(|has| has.as_bool())))
+    }
+}
+
+/// The system's icon family and whether it draws the transport controls solid.
+fn icon_faces(dwrite: &IDWriteFactory5) -> (HSTRING, bool) {
+    let icons = installed(dwrite, &ICON_FAMILIES);
+    let solid = solid_transport(&icons.to_string(), || family_has(dwrite, ICON_FAMILIES[1], &super::icons::SOLID_TRANSPORT), as_old_windows_10());
+    (icons, solid)
 }
 
 /// The first of `names` the system has (Windows 10 lacks Segoe UI Variable and Fluent Icons).
@@ -166,6 +202,7 @@ pub struct SystemFaces {
     pub icons: String,
     pub text: String,
     pub display: String,
+    pub solid_transport: bool,
 }
 
 impl SystemFaces {
@@ -176,7 +213,11 @@ impl SystemFaces {
             Ok(dwrite) => installed(dwrite, names).to_string(),
             Err(_) => names[0].to_string(),
         };
-        SystemFaces { icons: pick(&ICON_FAMILIES), text: pick(&TEXT_FAMILIES), display: pick(&DISPLAY_FAMILIES) }
+        let (icons, solid_transport) = match &factory {
+            Ok(dwrite) => icon_faces(dwrite),
+            Err(_) => (HSTRING::from(ICON_FAMILIES[0]), true),
+        };
+        SystemFaces { icons: icons.to_string(), text: pick(&TEXT_FAMILIES), display: pick(&DISPLAY_FAMILIES), solid_transport }
     }
 
     /// Windows 10's Segoe MDL2 Assets.
@@ -203,6 +244,7 @@ macro_rules! set_slint_faces {
         let theme = $theme;
         theme.set_battery_scale(faces.battery_scale());
         theme.set_mdl2(faces.mdl2());
+        theme.set_solid_transport(faces.solid_transport);
         theme.set_icons(faces.icons.into());
         theme.set_text_face(faces.text.into());
         theme.set_display_face(faces.display.into());
@@ -211,12 +253,8 @@ macro_rules! set_slint_faces {
 
 impl Fonts {
     fn system(dwrite: &IDWriteFactory5) -> Self {
-        Fonts {
-            collection: None,
-            display: installed(dwrite, &DISPLAY_FAMILIES),
-            text: installed(dwrite, &TEXT_FAMILIES),
-            icons: installed(dwrite, &ICON_FAMILIES),
-        }
+        let (icons, solid_transport) = icon_faces(dwrite);
+        Fonts { collection: None, display: installed(dwrite, &DISPLAY_FAMILIES), text: installed(dwrite, &TEXT_FAMILIES), icons, solid_transport }
     }
 
     fn load(dwrite: &IDWriteFactory5, dir: &Path) -> Self {
@@ -253,7 +291,8 @@ impl Fonts {
             let mut buf = vec![0u16; len + 1];
             names.GetString(0, &mut buf)?;
             let family = HSTRING::from_wide(&buf[..len]);
-            Ok(Fonts { collection: Some(collection), display: family.clone(), text: family, icons: installed(dwrite, &ICON_FAMILIES) })
+            let (icons, solid_transport) = icon_faces(dwrite);
+            Ok(Fonts { collection: Some(collection), display: family.clone(), text: family, icons, solid_transport })
         }
     }
 
@@ -363,10 +402,12 @@ impl Ink<'_> {
         let (family, collection) = self.text.fonts.family(st.face);
         // Windows 10's icon font: a few glyphs differ (an icon's text is one glyph).
         let (mdl2, mut size) = (st.face == Face::Icons && family == ICON_FAMILIES[1], st.size_px);
+        let solid = self.text.fonts.solid_transport;
         let mapped: String;
         let s = if mdl2 {
             size *= s.chars().next().map_or(1.0, super::icons::mdl2_scale);
-            mapped = s.chars().map(super::icons::in_mdl2).collect();
+            let transport = |c| if solid { c } else { super::icons::outline_transport(c) };
+            mapped = s.chars().map(super::icons::in_mdl2).map(transport).collect();
             &mapped
         } else {
             s
@@ -838,6 +879,15 @@ mod tests {
     fn windows_10_fonts_on_windows_11() {
         assert_eq!(first_installed(&ICON_FAMILIES, |_| true, true), "Segoe MDL2 Assets");
         assert_eq!(first_installed(&TEXT_FAMILIES, |_| true, true), "Segoe UI");
+    }
+
+    /// Issue #8: an older Windows 10's MDL2 has no solid Play, Pause, Prev and Next.
+    #[test]
+    fn solid_transport_only_where_the_icon_font_has_it() {
+        assert!(solid_transport("Segoe Fluent Icons", || false, false), "Fluent always has it");
+        assert!(solid_transport("Segoe MDL2 Assets", || true, false), "Windows 11's MDL2");
+        assert!(!solid_transport("Segoe MDL2 Assets", || false, false), "an older Windows 10's");
+        assert!(!solid_transport("Segoe MDL2 Assets", || true, true), "PEBBLY_FONTS=win10-old");
     }
 
     /// "Yazılar tam ortada durmuyor": DirectWrite centres the line box, which puts Segoe

@@ -199,21 +199,21 @@ export component Pill inherits Rectangle {
             x: parent.width - 95 * root.u;
             width: 30 * root.u;
             height: root.ph;
-            text: "\u{F8AC}";
+            text: Theme.prev-glyph;
             font-size: 16 * root.u;
         }
         if root.kind == 0 && Store.pill-buttons != 2: PGlyph {
             x: parent.width - (Store.pill-buttons == 0 ? 65 : 37) * root.u;
             width: 30 * root.u;
             height: root.ph;
-            text: "\u{F8AE}";
+            text: Theme.pause-glyph;
             font-size: 16 * root.u;
         }
         if root.kind == 0 && Store.pill-buttons == 0: PGlyph {
             x: parent.width - 35 * root.u;
             width: 30 * root.u;
             height: root.ph;
-            text: "\u{F8AD}";
+            text: Theme.next-glyph;
             font-size: 16 * root.u;
         }
 
@@ -254,7 +254,7 @@ export component Pill inherits Rectangle {
             x: parent.width - 32 * root.u;
             width: 24 * root.u;
             height: root.ph;
-            text: "\u{F8AE}";
+            text: Theme.pause-glyph;
             font-size: 16 * root.u;
         }
 
