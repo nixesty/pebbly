@@ -539,6 +539,7 @@ fn fill(ui: &SettingsWindow, s: &Settings, live_apps: &[String]) {
     st.set_city_results(model(Vec::new()));
     st.set_city_search_state(0);
     st.set_fullscreen_hide(s.fullscreen_hide);
+    st.set_fullscreen_switch(s.fullscreen_switch);
     st.set_exceptions(model(exception_rows(s)));
     st.set_running_apps(model(running_rows(s)));
     st.set_version(i18n::trf("Sürüm {}", &[&env!("CARGO_PKG_VERSION")]).into());
@@ -648,6 +649,7 @@ fn read(ui: &SettingsWindow, base: &Settings) -> Settings {
         weather_city: picked_city(&st.get_city()),
         weather_locate: st.get_weather_locate(),
         fullscreen_hide: st.get_fullscreen_hide(),
+        fullscreen_switch: st.get_fullscreen_switch(),
         settings_page: st.get_page().clamp(0, pebbly::settings_ui::LAST_PAGE as i32) as u8,
         settings_preview_collapsed: st.get_preview_collapsed(),
         ..base.clone()

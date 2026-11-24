@@ -316,6 +316,9 @@ pub struct Settings {
     pub update_check: bool,
     // Tam ekran
     pub fullscreen_hide: bool,
+    /// A fullscreen app on the pill's screen sends it to another screen's taskbar, rather than
+    /// hiding it, until that app goes (issue #7).
+    pub fullscreen_switch: bool,
     /// Executable names (e.g. "vlc.exe") that never count as fullscreen.
     pub fullscreen_exceptions: Vec<String>,
     // Hidden: the settings window's last position and size (x, y, w, h), its last page and
@@ -425,6 +428,7 @@ impl Default for Settings {
             wellbeing_limits: Vec::new(),
             update_check: true,
             fullscreen_hide: true,
+            fullscreen_switch: true,
             fullscreen_exceptions: Vec::new(),
             settings_window: None,
             settings_page: 0,
@@ -856,6 +860,14 @@ mod tests {
         let old: Settings = serde_json::from_str(r#"{"enabled": true}"#).unwrap();
         assert_eq!(old.pill_screen, "");
         assert_eq!(parse(r#"{"pill_screen": "\\\\.\\DISPLAY2"}"#).pill_screen, r"\\.\DISPLAY2");
+    }
+
+    /// A fullscreen app sends the pill to another screen by default (with one screen, nothing).
+    #[test]
+    fn fullscreen_moves_the_pill_by_default() {
+        let old: Settings = serde_json::from_str(r#"{"enabled": true}"#).unwrap();
+        assert!(old.fullscreen_switch);
+        assert!(!parse(r#"{"fullscreen_switch": false}"#).fullscreen_switch);
     }
 
     #[test]

@@ -3813,3 +3813,15 @@ msgstr "Display {}"
 #: src/settings_ui.rs
 msgid "Tek görev çubuğu"
 msgstr "Only one taskbar"
+
+#: src/settings_ui.rs
+msgid "Başka ekrana geç"
+msgstr "Move to another display"
+
+#: src/settings_ui.rs
+msgid "Pilin ekranı tam ekranken pil, görev çubuğu olan başka bir ekrana geçer; uygulama kapanınca döner"
+msgstr "While its display is fullscreen, the pill moves to another display with a taskbar, and comes back when the app closes"
+
+#: ui/pages.slint
+msgid "Görev çubuğu olan bir ekrana"
+msgstr "To one with a taskbar"
